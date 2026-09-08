@@ -1,17 +1,17 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <math.h>
 
 #pragma mark - Private interfaces
 
-@interface CSCoverSheetViewController : UIViewController
-@property(nonatomic, assign, getter=isAuthenticated) BOOL authenticated;
+@interface CSMainPageView : UIView
 @end
 
-@interface SBLockScreenManager : NSObject
+@interface CSCoverSheetViewController : UIViewController
+@property(nonatomic, assign, getter=isAuthenticated) BOOL authenticated;
 @end
 
 @interface SBUICallToActionLabel : UILabel
@@ -19,21 +19,20 @@
 
 #pragma mark - State
 
-static BOOL N15Enabled = YES;
-static BOOL N15Locked = YES;
+static BOOL NLSLocked = YES;
 
-static char kN15SliderKey;
-static char kN15PanKey;
-static char kN15PanDelegateKey;
+static char kNLSSlideViewKey;
+static char kNLSFullScreenPanKey;
+static char kNLSFullScreenPanDelegateKey;
 
-#pragma mark - SpringBoard helpers
+#pragma mark - Unlock helper
 
-static id N15LockScreenManager(void) {
+static void NLSRequestUnlock(void) {
     Class managerClass =
         NSClassFromString(@"SBLockScreenManager");
 
     if (!managerClass) {
-        return nil;
+        return;
     }
 
     SEL sharedSelector =
@@ -42,92 +41,55 @@ static id N15LockScreenManager(void) {
     if (![managerClass
         respondsToSelector:sharedSelector]) {
 
-        return nil;
+        return;
     }
 
-    return ((id (*)(id, SEL))objc_msgSend)(
-        managerClass,
-        sharedSelector
-    );
-}
-
-static BOOL N15SystemIsLocked(
-    BOOL fallback
-) {
     id manager =
-        N15LockScreenManager();
-
-    if (!manager) {
-        return fallback;
-    }
-
-    SEL selector =
-        NSSelectorFromString(@"isUILocked");
-
-    if (![manager
-        respondsToSelector:selector]) {
-
-        return fallback;
-    }
-
-    return ((BOOL (*)(id, SEL))objc_msgSend)(
-        manager,
-        selector
-    );
-}
-
-static void N15RequestUnlock(void) {
-    id manager =
-        N15LockScreenManager();
+        ((id (*)(id, SEL))objc_msgSend)(
+            managerClass,
+            sharedSelector
+        );
 
     if (!manager) {
         return;
     }
 
-    SEL selector =
+    SEL unlockSelector =
         NSSelectorFromString(
             @"lockScreenViewControllerRequestsUnlock"
         );
 
     if (![manager
-        respondsToSelector:selector]) {
+        respondsToSelector:unlockSelector]) {
 
         return;
     }
 
     ((void (*)(id, SEL))objc_msgSend)(
         manager,
-        selector
+        unlockSelector
     );
 }
 
 #pragma mark - Slide visual
 
-@interface N15SlideToUnlockView : UIView
+@interface NLSSlideToUnlockView : UIView
 
-@property(nonatomic, strong)
-UILabel *chevronLabel;
+@property(nonatomic, strong) UILabel *chevronLabel;
+@property(nonatomic, strong) UILabel *textLabel;
+@property(nonatomic, strong) CAGradientLayer *shimmerLayer;
 
-@property(nonatomic, strong)
-UILabel *textLabel;
+@property(nonatomic, assign) BOOL completing;
 
-@property(nonatomic, strong)
-CAGradientLayer *shimmerLayer;
-
-@property(nonatomic, assign)
-BOOL completing;
-
+- (void)restartShimmer;
 - (void)setSlideProgress:(CGFloat)progress;
 - (void)resetAnimated:(BOOL)animated;
-- (void)restartShimmer;
 
 @end
 
-@implementation N15SlideToUnlockView
+@implementation NLSSlideToUnlockView
 
-- (instancetype)initWithFrame:
-    (CGRect)frame {
-
+- (instancetype)initWithFrame:(CGRect)frame {
     self =
         [super initWithFrame:frame];
 
@@ -141,8 +103,9 @@ BOOL completing;
     /*
      * Visual only.
      *
-     * The gesture itself lives on the entire
-     * CoverSheet, not on this bottom view.
+     * It does NOT capture touches.
+     * The full-screen gesture belongs to
+     * CSMainPageView.
      */
     self.userInteractionEnabled =
         NO;
@@ -168,8 +131,7 @@ BOOL completing;
     _chevronLabel.font =
         [UIFont
             systemFontOfSize:32.0
-                     weight:
-                UIFontWeightUltraLight];
+                     weight:UIFontWeightUltraLight];
 
     _chevronLabel.textAlignment =
         NSTextAlignmentCenter;
@@ -177,8 +139,7 @@ BOOL completing;
     _chevronLabel.userInteractionEnabled =
         NO;
 
-    [self addSubview:
-        _chevronLabel];
+    [self addSubview:_chevronLabel];
 
     _textLabel =
         [[UILabel alloc]
@@ -196,8 +157,7 @@ BOOL completing;
     _textLabel.font =
         [UIFont
             systemFontOfSize:24.0
-                     weight:
-                UIFontWeightLight];
+                     weight:UIFontWeightLight];
 
     _textLabel.textAlignment =
         NSTextAlignmentCenter;
@@ -205,8 +165,7 @@ BOOL completing;
     _textLabel.userInteractionEnabled =
         NO;
 
-    [self addSubview:
-        _textLabel];
+    [self addSubview:_textLabel];
 
     _shimmerLayer =
         [CAGradientLayer layer];
@@ -218,9 +177,7 @@ BOOL completing;
                      alpha:0.22].CGColor,
 
         (__bridge id)
-        [UIColor
-            colorWithWhite:1.0
-                     alpha:1.0].CGColor,
+        UIColor.whiteColor.CGColor,
 
         (__bridge id)
         [UIColor
@@ -236,16 +193,10 @@ BOOL completing;
         ];
 
     _shimmerLayer.startPoint =
-        CGPointMake(
-            0.0,
-            0.5
-        );
+        CGPointMake(0.0, 0.5);
 
     _shimmerLayer.endPoint =
-        CGPointMake(
-            1.0,
-            0.5
-        );
+        CGPointMake(1.0, 0.5);
 
     _textLabel.layer.mask =
         _shimmerLayer;
@@ -265,9 +216,7 @@ BOOL completing;
     [super layoutSubviews];
 
     CGFloat width =
-        CGRectGetWidth(
-            self.bounds
-        );
+        CGRectGetWidth(self.bounds);
 
     CGFloat textWidth =
         MIN(
@@ -310,9 +259,18 @@ BOOL completing;
 }
 
 - (void)restartShimmer {
+    if (CGRectGetWidth(
+            self.textLabel.bounds
+        ) <= 0.0) {
+
+        [self setNeedsLayout];
+
+        return;
+    }
+
     [self.shimmerLayer
         removeAnimationForKey:
-            @"nine15.shimmer"];
+            @"ninels.slide.shimmer"];
 
     CABasicAnimation *animation =
         [CABasicAnimation
@@ -347,13 +305,13 @@ BOOL completing;
     [self.shimmerLayer
         addAnimation:animation
               forKey:
-            @"nine15.shimmer"];
+            @"ninels.slide.shimmer"];
 }
 
 - (void)setSlideProgress:
     (CGFloat)progress {
 
-    CGFloat clamped =
+    CGFloat value =
         MIN(
             MAX(
                 progress,
@@ -362,14 +320,8 @@ BOOL completing;
             1.0
         );
 
-    /*
-     * The finger can start anywhere on screen.
-     * Only the bottom visual moves slightly to
-     * provide feedback.
-     */
-
     CGFloat translation =
-        clamped * 36.0;
+        value * 36.0;
 
     CGAffineTransform transform =
         CGAffineTransformMakeTranslation(
@@ -386,7 +338,7 @@ BOOL completing;
     if (!self.completing) {
         self.alpha =
             1.0 -
-            clamped * 0.38;
+            value * 0.40;
     }
 }
 
@@ -409,6 +361,7 @@ BOOL completing;
 
     if (!animated) {
         changes();
+
         return;
     }
 
@@ -418,38 +371,32 @@ BOOL completing;
                     options:
             UIViewAnimationOptionCurveEaseOut |
             UIViewAnimationOptionBeginFromCurrentState
-                 animations:
-            changes
+                 animations:changes
                  completion:nil];
 }
 
 @end
 
-#pragma mark - Global pan delegate
+#pragma mark - Full screen gesture delegate
 
-@interface N15GlobalPanDelegate :
+@interface NLSFullScreenPanDelegate :
     NSObject <UIGestureRecognizerDelegate>
 @end
 
-@implementation N15GlobalPanDelegate
+@implementation NLSFullScreenPanDelegate
 
 - (BOOL)gestureRecognizerShouldBegin:
     (UIGestureRecognizer *)gestureRecognizer {
 
     /*
-     * Do NOT inspect initial velocity here.
+     * Do NOT test initial velocity or direction.
      *
-     * Previous versions could reject the swipe
-     * during the first few millimeters of movement.
-     *
-     * We let the pan begin and decide whether it
-     * was a valid slide only when the finger moves
-     * or is released.
+     * That was one of the reasons previous
+     * implementations felt random.
      */
 
     return
-        N15Enabled &&
-        N15Locked &&
+        NLSLocked &&
         [gestureRecognizer
             isKindOfClass:
                 UIPanGestureRecognizer.class];
@@ -461,8 +408,10 @@ BOOL completing;
     (UIGestureRecognizer *)otherGestureRecognizer {
 
     /*
-     * Do not destroy SpringBoard's own vertical
-     * scrolling / notification gestures.
+     * The full-screen recognizer is an observer.
+     *
+     * Vertical notification scrolling and other
+     * SpringBoard gestures remain available.
      */
 
     (void)gestureRecognizer;
@@ -473,70 +422,65 @@ BOOL completing;
 
 @end
 
-#pragma mark - CoverSheet
+#pragma mark - Main page
 
-%hook CSCoverSheetViewController
+%hook CSMainPageView
 
-- (void)viewDidLoad {
+- (void)layoutSubviews {
     %orig;
 
-    if (!N15Enabled) {
-        return;
-    }
-
     /*
-     * Bottom VISUAL.
-     *
-     * There is deliberately no separator line.
+     * ------------------------------------------------
+     * VISUAL
+     * ------------------------------------------------
      */
 
-    N15SlideToUnlockView *slider =
+    NLSSlideToUnlockView *slideView =
         objc_getAssociatedObject(
             self,
-            &kN15SliderKey
+            &kNLSSlideViewKey
         );
 
-    if (!slider) {
-        slider =
-            [[N15SlideToUnlockView alloc]
+    if (!slideView) {
+        slideView =
+            [[NLSSlideToUnlockView alloc]
                 initWithFrame:CGRectZero];
 
-        slider.autoresizingMask =
+        slideView.autoresizingMask =
             UIViewAutoresizingFlexibleWidth |
             UIViewAutoresizingFlexibleTopMargin;
 
         objc_setAssociatedObject(
             self,
-            &kN15SliderKey,
-            slider,
+            &kNLSSlideViewKey,
+            slideView,
             OBJC_ASSOCIATION_RETAIN_NONATOMIC
         );
 
-        [self.view
-            addSubview:slider];
+        [self addSubview:slideView];
     }
 
     /*
-     * FULL-SCREEN gesture.
+     * ------------------------------------------------
+     * FULL-SCREEN GESTURE
+     * ------------------------------------------------
      *
-     * The recognizer belongs to CoverSheet itself,
-     * therefore the swipe can begin anywhere:
+     * The pan recognizer is on CSMainPageView,
+     * NOT on the small bottom slider.
      *
-     * - clock
-     * - wallpaper
-     * - notifications
-     * - bottom area
+     * Therefore the swipe can start anywhere
+     * inside the Lock Screen.
      */
 
     UIPanGestureRecognizer *pan =
         objc_getAssociatedObject(
             self,
-            &kN15PanKey
+            &kNLSFullScreenPanKey
         );
 
     if (!pan) {
-        N15GlobalPanDelegate *delegate =
-            [[N15GlobalPanDelegate alloc]
+        NLSFullScreenPanDelegate *delegate =
+            [[NLSFullScreenPanDelegate alloc]
                 init];
 
         pan =
@@ -544,7 +488,7 @@ BOOL completing;
                 initWithTarget:self
                         action:
                     @selector(
-                        n15_handleFullScreenPan:
+                        nls_handleFullScreenSlide:
                     )];
 
         pan.delegate =
@@ -555,6 +499,13 @@ BOOL completing;
 
         pan.maximumNumberOfTouches =
             1;
+
+        /*
+         * Critical:
+         *
+         * Do not cancel touches received by
+         * notifications / SpringBoard.
+         */
 
         pan.cancelsTouchesInView =
             NO;
@@ -567,236 +518,104 @@ BOOL completing;
 
         objc_setAssociatedObject(
             self,
-            &kN15PanDelegateKey,
+            &kNLSFullScreenPanDelegateKey,
             delegate,
             OBJC_ASSOCIATION_RETAIN_NONATOMIC
         );
 
         objc_setAssociatedObject(
             self,
-            &kN15PanKey,
+            &kNLSFullScreenPanKey,
             pan,
             OBJC_ASSOCIATION_RETAIN_NONATOMIC
         );
 
-        [self.view
-            addGestureRecognizer:pan];
-    }
-}
-
-- (void)viewWillAppear:
-    (BOOL)animated {
-
-    %orig(animated);
-
-    if (!N15Enabled) {
-        return;
+        [self addGestureRecognizer:pan];
     }
 
     /*
-     * Determine the state ONCE when CoverSheet
-     * appears.
-     *
-     * We do not poll isUILocked from layoutSubviews.
+     * ------------------------------------------------
+     * LAYOUT
+     * ------------------------------------------------
      */
-
-    BOOL authenticated =
-        NO;
-
-    @try {
-        authenticated =
-            self.authenticated;
-    } @catch (__unused NSException *exception) {
-        authenticated =
-            NO;
-    }
-
-    BOOL fallbackLocked =
-        !authenticated;
-
-    N15Locked =
-        N15SystemIsLocked(
-            fallbackLocked
-        );
-
-    N15SlideToUnlockView *slider =
-        objc_getAssociatedObject(
-            self,
-            &kN15SliderKey
-        );
-
-    slider.hidden =
-        !N15Locked;
-
-    if (N15Locked) {
-        [slider
-            resetAnimated:NO];
-    }
-}
-
-- (void)viewDidAppear:
-    (BOOL)animated {
-
-    %orig(animated);
-
-    if (!N15Enabled) {
-        return;
-    }
-
-    /*
-     * One second state confirmation when CoverSheet
-     * has actually finished appearing.
-     *
-     * Again: no continuous polling.
-     */
-
-    BOOL authenticated =
-        NO;
-
-    @try {
-        authenticated =
-            self.authenticated;
-    } @catch (__unused NSException *exception) {
-        authenticated =
-            NO;
-    }
-
-    N15Locked =
-        N15SystemIsLocked(
-            !authenticated
-        );
-
-    N15SlideToUnlockView *slider =
-        objc_getAssociatedObject(
-            self,
-            &kN15SliderKey
-        );
-
-    slider.hidden =
-        !N15Locked;
-
-    if (N15Locked) {
-        [self.view
-            bringSubviewToFront:
-                slider];
-
-        [slider
-            resetAnimated:NO];
-    }
-}
-
-- (void)viewDidLayoutSubviews {
-    %orig;
-
-    if (!N15Enabled) {
-        return;
-    }
-
-    N15SlideToUnlockView *slider =
-        objc_getAssociatedObject(
-            self,
-            &kN15SliderKey
-        );
-
-    if (!slider) {
-        return;
-    }
 
     CGFloat width =
-        CGRectGetWidth(
-            self.view.bounds
-        );
+        CGRectGetWidth(self.bounds);
 
     CGFloat height =
-        CGRectGetHeight(
-            self.view.bounds
-        );
+        CGRectGetHeight(self.bounds);
 
-    CGFloat bottomInset =
+    CGFloat bottom =
         MAX(
-            self.view.safeAreaInsets.bottom,
+            self.safeAreaInsets.bottom,
             5.0
         );
 
-    /*
-     * Only the VISUAL stays near the bottom.
-     *
-     * The gesture area is NOT this frame.
-     * The gesture area is the entire self.view.
-     */
-
-    slider.frame =
+    slideView.frame =
         CGRectMake(
             0.0,
             MAX(
                 height -
-                bottomInset -
-                112.0,
+                bottom -
+                125.0,
                 0.0
             ),
             width,
             82.0
         );
 
-    slider.hidden =
-        !N15Locked;
+    slideView.hidden =
+        !NLSLocked;
 
-    if (N15Locked) {
-        [self.view
+    if (NLSLocked) {
+        [self
             bringSubviewToFront:
-                slider];
+                slideView];
     }
 }
 
 %new
-- (void)n15_handleFullScreenPan:
+- (void)nls_handleFullScreenSlide:
     (UIPanGestureRecognizer *)gesture {
 
-    if (!N15Enabled ||
-        !N15Locked) {
-
+    if (!NLSLocked) {
         return;
     }
 
-    N15SlideToUnlockView *slider =
+    NLSSlideToUnlockView *slideView =
         objc_getAssociatedObject(
             self,
-            &kN15SliderKey
+            &kNLSSlideViewKey
         );
 
-    if (!slider ||
-        slider.completing) {
+    if (!slideView ||
+        slideView.completing) {
 
         return;
     }
 
     CGPoint translation =
         [gesture
-            translationInView:
-                self.view];
+            translationInView:self];
 
-    CGFloat width =
+    CGFloat screenWidth =
         MAX(
             CGRectGetWidth(
-                self.view.bounds
+                self.bounds
             ),
             1.0
         );
 
     /*
-     * Deterministic threshold.
+     * About 30% of screen width.
      *
-     * No "sometimes velocity is enough",
-     * no initial-direction decision.
-     *
-     * On a 320pt screen:
-     * 0.42 * 320 = 134.4pt.
+     * On your 320pt device this is ~96pt.
      */
 
     CGFloat requiredDistance =
         MAX(
-            width * 0.42,
-            120.0
+            screenWidth * 0.30,
+            90.0
         );
 
     CGFloat rightDistance =
@@ -815,7 +634,7 @@ BOOL completing;
     if (gesture.state ==
         UIGestureRecognizerStateBegan) {
 
-        [slider
+        [slideView
             resetAnimated:NO];
 
         return;
@@ -824,7 +643,7 @@ BOOL completing;
     if (gesture.state ==
         UIGestureRecognizerStateChanged) {
 
-        [slider
+        [slideView
             setSlideProgress:
                 progress];
 
@@ -834,43 +653,42 @@ BOOL completing;
     if (gesture.state ==
         UIGestureRecognizerStateEnded) {
 
-        /*
-         * We evaluate the COMPLETE gesture,
-         * not its first few milliseconds.
-         *
-         * Require an actual predominantly-right
-         * swipe so vertical notification scrolling
-         * doesn't accidentally unlock.
-         */
-
         CGFloat verticalDistance =
             fabs(
                 translation.y
             );
 
+        /*
+         * Require:
+         *
+         * 1. enough movement towards the right
+         * 2. the gesture is reasonably horizontal
+         *
+         * We intentionally do NOT use velocity
+         * as a completion condition.
+         */
+
         BOOL enoughDistance =
             rightDistance >=
             requiredDistance;
 
-        BOOL sufficientlyHorizontal =
+        BOOL horizontalEnough =
             rightDistance >=
-            verticalDistance;
+            verticalDistance * 0.75;
 
-        BOOL shouldUnlock =
-            enoughDistance &&
-            sufficientlyHorizontal;
+        if (!enoughDistance ||
+            !horizontalEnough) {
 
-        if (!shouldUnlock) {
-            [slider
+            [slideView
                 resetAnimated:YES];
 
             return;
         }
 
-        slider.completing =
+        slideView.completing =
             YES;
 
-        [slider
+        [slideView
             setSlideProgress:1.0];
 
         [UIView
@@ -881,36 +699,34 @@ BOOL completing;
                 UIViewAnimationOptionBeginFromCurrentState
                      animations:^{
 
-            slider.alpha =
+            slideView.alpha =
                 0.0;
 
             CGAffineTransform transform =
                 CGAffineTransformMakeTranslation(
-                    48.0,
+                    42.0,
                     0.0
                 );
 
-            slider.chevronLabel.transform =
+            slideView.chevronLabel.transform =
                 transform;
 
-            slider.textLabel.transform =
+            slideView.textLabel.transform =
                 transform;
 
         } completion:^(__unused BOOL finished) {
 
             /*
-             * Only request Apple's normal unlock.
-             *
-             * No unlock method is intercepted,
-             * overridden or blocked.
+             * Ask SpringBoard for its normal
+             * unlock flow.
              */
 
-            N15RequestUnlock();
+            NLSRequestUnlock();
 
             /*
              * If a passcode is required or the
-             * unlock isn't completed, make the
-             * slider available again.
+             * CoverSheet stays visible, restore
+             * the slider.
              */
 
             dispatch_after(
@@ -923,8 +739,10 @@ BOOL completing;
                 ),
                 dispatch_get_main_queue(),
                 ^{
-                    if (slider.window) {
-                        [slider
+                    if (slideView.window &&
+                        NLSLocked) {
+
+                        [slideView
                             resetAnimated:NO];
                     }
                 }
@@ -939,31 +757,70 @@ BOOL completing;
         gesture.state ==
             UIGestureRecognizerStateFailed) {
 
-        [slider
+        [slideView
             resetAnimated:YES];
     }
 }
 
 %end
 
-#pragma mark - Hide stock call-to-action
+#pragma mark - Determine Lock Screen vs Notification Center
+
+%hook CSCoverSheetViewController
+
+- (void)viewWillAppear:
+    (BOOL)animated {
+
+    %orig(animated);
+
+    BOOL authenticated =
+        NO;
+
+    @try {
+        authenticated =
+            self.authenticated;
+    } @catch (__unused NSException *exception) {
+        authenticated =
+            NO;
+    }
+
+    /*
+     * Important:
+     *
+     * We only establish this when CoverSheet
+     * appears.
+     *
+     * We do NOT continuously watch authenticated.
+     * Touch ID can authenticate while the Lock
+     * Screen itself is still visible.
+     */
+
+    NLSLocked =
+        !authenticated;
+}
+
+%end
+
+#pragma mark - Hide stock CTA
 
 %hook SBUICallToActionLabel
 
 - (void)layoutSubviews {
     %orig;
 
-    if (!N15Enabled) {
-        return;
+    if (NLSLocked) {
+        self.hidden =
+            YES;
+
+        self.alpha =
+            0.0;
+    } else {
+        self.hidden =
+            NO;
+
+        self.alpha =
+            1.0;
     }
-
-    self.hidden =
-        N15Locked;
-
-    self.alpha =
-        N15Locked
-        ? 0.0
-        : 1.0;
 }
 
 %end
@@ -972,23 +829,7 @@ BOOL completing;
 
 %ctor {
     @autoreleasepool {
-        NSString *version =
-            UIDevice.currentDevice.systemVersion;
-
-        BOOL iOS15OrNewer =
-            [version
-                compare:@"15.0"
-                options:NSNumericSearch] !=
-            NSOrderedAscending;
-
-        BOOL beforeIOS16 =
-            [version
-                compare:@"16.0"
-                options:NSNumericSearch] ==
-            NSOrderedAscending;
-
-        N15Enabled =
-            iOS15OrNewer &&
-            beforeIOS16;
+        NLSLocked =
+            YES;
     }
 }
