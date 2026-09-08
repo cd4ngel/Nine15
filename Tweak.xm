@@ -365,8 +365,7 @@ static void N15SetNotificationCount(NSUInteger count) {
     N15NotificationCount = count;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [N15CurrentOverlay updateLockedState];
-        N15UpdateNotificationBackdrop();
+    N15SendVoid((id)N15CurrentOverlay, NSSelectorFromString(@"updateLockedState"));        N15UpdateNotificationBackdrop();
     });
 }
 
