@@ -12,6 +12,15 @@
 @property(nonatomic, getter=isAuthenticated) BOOL authenticated;
 @end
 
+@interface SBLockScreenManager : NSObject
++ (instancetype)sharedInstance;
+- (BOOL)isUILocked;
+- (void)lockScreenViewControllerRequestsUnlock;
+- (void)unlockUIFromSource:(int)source withOptions:(id)options;
+- (BOOL)_finishUIUnlockFromSource:(int)source withOptions:(id)options;
+- (void)lockUIFromSource:(int)source withOptions:(id)options;
+@end
+
 @interface CSMainPageView : UIView
 @end
 
@@ -130,11 +139,11 @@ static __weak N15LockOverlayView *N15CurrentOverlay = nil;
 static const void *N15OverlayAssociationKey = &N15OverlayAssociationKey;
 static const void *N15SeparatorAssociationKey = &N15SeparatorAssociationKey;
 static const void *N15CoverBlurAssociationKey = &N15CoverBlurAssociationKey;
-static const void *N15NotificationCenterInsetAssociationKey = &N15NotificationCenterInsetAssociationKey;
 
 static __weak CSCoverSheetViewController *N15CurrentCoverController = nil;
 static NSUInteger N15NotificationCount = 0;
 static BOOL N15NotificationHistoryRevealed = NO;
+static BOOL N15SlideUnlockAuthorized = NO;
 
 static N15LockOverlayView *N15GetOverlay(CSMainPageView *view) {
     if (!view) {
@@ -223,6 +232,24 @@ static void N15SendVoid(id object, SEL selector) {
     ((void (*)(id, SEL))objc_msgSend)(object, selector);
 }
 
+static BOOL N15SystemUILocked(void) {
+    Class managerClass = NSClassFromString(@"SBLockScreenManager");
+    if (!managerClass) {
+        return N15Locked;
+    }
+
+    id manager =
+        N15SendId(managerClass, NSSelectorFromString(@"sharedInstance"));
+
+    SEL selector = NSSelectorFromString(@"isUILocked");
+
+    if (!manager || ![manager respondsToSelector:selector]) {
+        return N15Locked;
+    }
+
+    return ((BOOL (*)(id, SEL))objc_msgSend)(manager, selector);
+}
+
 static void N15RequestUnlock(void) {
     Class managerClass = NSClassFromString(@"SBLockScreenManager");
     if (!managerClass) {
@@ -233,6 +260,9 @@ static void N15RequestUnlock(void) {
     if (!manager) {
         return;
     }
+
+    // This is the only path that authorizes an actual UI unlock.
+    N15SlideUnlockAuthorized = YES;
 
     SEL selector = NSSelectorFromString(@"lockScreenViewControllerRequestsUnlock");
     N15SendVoid(manager, selector);
@@ -256,6 +286,10 @@ static id N15ObjectIvar(id object, const char *name) {
 
     return ivar ? object_getIvar(object, ivar) : nil;
 }
+
+
+
+
 
 static BOOL N15IsNotificationBackgroundMaterial(UIView *view) {
     if (!view) {
@@ -1039,10 +1073,9 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     self.separatorView.hidden =
         !showLockUI || mediaShowing || hideClockForHistory;
 
-    BOOL hideSliderForNotifications = N15NotificationCount > 0;
-
-    self.sliderHitView.hidden =
-        !showLockUI || hideSliderForNotifications;
+    // Keep Slide to Unlock available even while notifications/history
+    // are visible. This is the only allowed UI-unlock path.
+    self.sliderHitView.hidden = !showLockUI;
 
     self.mediaView.hidden = !mediaShowing;
     [self.mediaView refreshNowPlaying];
@@ -1130,6 +1163,10 @@ static void N15SetLocked(BOOL locked) {
 
     if (changed) {
         N15NotificationHistoryRevealed = NO;
+
+        if (locked) {
+            N15SlideUnlockAuthorized = NO;
+        }
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -1160,20 +1197,66 @@ static void N15SetLocked(BOOL locked) {
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
 
-    BOOL authenticated = NO;
-
-    @try {
-        authenticated = self.isAuthenticated;
-    } @catch (__unused NSException *exception) {
-        authenticated = NO;
-    }
-
-    N15SetLocked(!authenticated);
+    // Touch ID can authenticate while the CoverSheet is still on screen.
+    // "authenticated" therefore is not the same thing as "UI unlocked".
+    N15SetLocked(N15SystemUILocked());
 }
 
 - (void)setAuthenticated:(BOOL)authenticated {
     %orig(authenticated);
-    N15SetLocked(!authenticated);
+
+    // Keep the classic lock UI until SpringBoard has actually completed
+    // its UI unlock. This also prevents a Home-button press from making
+    // our overlay think the device has already left the Lock Screen.
+    N15SetLocked(N15SystemUILocked());
+}
+
+%end
+
+// Only Slide to Unlock may initiate/finish a UI unlock.
+// Touch ID authentication is still allowed; it simply remains on the
+// CoverSheet until the user completes our slide gesture.
+%hook SBLockScreenManager
+
+- (void)lockScreenViewControllerRequestsUnlock {
+    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+        return;
+    }
+
+    %orig;
+}
+
+- (void)unlockUIFromSource:(int)source withOptions:(id)options {
+    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+        return;
+    }
+
+    %orig(source, options);
+}
+
+- (BOOL)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
+    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+        return NO;
+    }
+
+    BOOL result = %orig(source, options);
+
+    if (N15Enabled && result) {
+        N15SetLocked(NO);
+        N15SlideUnlockAuthorized = NO;
+    }
+
+    return result;
+}
+
+- (void)lockUIFromSource:(int)source withOptions:(id)options {
+    N15SlideUnlockAuthorized = NO;
+
+    %orig(source, options);
+
+    if (N15Enabled) {
+        N15SetLocked(YES);
+    }
 }
 
 %end
@@ -1425,6 +1508,7 @@ static void N15SetLocked(BOOL locked) {
 
     self.backgroundColor = UIColor.clearColor;
     self.contentView.backgroundColor = UIColor.clearColor;
+    self.contentView.frame = self.bounds;
 
     self.layer.cornerRadius = 0.0;
     self.layer.mask = nil;
@@ -1488,6 +1572,33 @@ static void N15SetLocked(BOOL locked) {
                 }
             }
         }
+    }
+}
+
+%end
+
+%hook NCNotificationSeamlessContentView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!N15Enabled || !self.superview) {
+        return;
+    }
+
+    CGFloat parentWidth = CGRectGetWidth(self.superview.bounds);
+
+    // Fill the platter content width. The app icon keeps Apple's internal
+    // ~10pt padding, giving an iOS 9-like edge distance once the outer list
+    // margin is reduced to 4pt.
+    CGRect frame = self.frame;
+
+    if (fabs(frame.origin.x) > 0.5 ||
+        fabs(frame.size.width - parentWidth) > 0.5) {
+
+        frame.origin.x = 0.0;
+        frame.size.width = parentWidth;
+        self.frame = frame;
     }
 }
 
@@ -1725,45 +1836,114 @@ static void N15SetLocked(BOOL locked) {
     }
 
     CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
+
     BOOL isRootList =
         fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
-        CGRectGetHeight(self.bounds) >= UIScreen.mainScreen.bounds.size.height * 0.85;
+        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
 
-    if (!isRootList) {
+    if (isRootList) {
+        if (N15Locked) {
+            // Diagnostic values on this device:
+            // rest ≈ -201pt, Notification History ≈ +151pt.
+            // Hide the clock as soon as the list is deliberately pulled
+            // into the clock region; restore it when returning to rest.
+            BOOL historyOccupiesClockArea =
+                self.contentOffset.y > -120.0;
+
+            N15SetNotificationHistoryRevealed(
+                historyOccupiesClockArea
+            );
+        } else {
+            // Notification Center should not reserve the old Lock Screen
+            // date/time area.
+            UIEdgeInsets inset = self.contentInset;
+
+            if (fabs(inset.top) > 0.5) {
+                CGPoint offset = self.contentOffset;
+
+                inset.top = 0.0;
+                self.contentInset = inset;
+
+                UIEdgeInsets indicatorInsets =
+                    self.verticalScrollIndicatorInsets;
+
+                indicatorInsets.top = 0.0;
+
+                self.verticalScrollIndicatorInsets =
+                    indicatorInsets;
+
+                if (offset.y < 0.0) {
+                    offset.y = 0.0;
+                    [self setContentOffset:offset animated:NO];
+                }
+            }
+        }
+    }
+
+    // iOS 15.8.8 lays the master notification list out at x=10,
+    // width=screen-20. Expand it to a small 4pt edge margin. Deeper
+    // NCNotificationListViews then fill their new parent width.
+    if ([self.superview isKindOfClass:NSClassFromString(@"NCNotificationListView")]) {
+        NCNotificationListView *parent =
+            (NCNotificationListView *)self.superview;
+
+        CGFloat parentWidth = CGRectGetWidth(parent.bounds);
+        BOOL parentIsScreenWidth =
+            fabs(parentWidth - screenWidth) < 1.0;
+
+        CGFloat desiredX = parentIsScreenWidth ? 4.0 : 0.0;
+        CGFloat desiredWidth =
+            parentIsScreenWidth
+            ? MAX(parentWidth - 8.0, 0.0)
+            : parentWidth;
+
+        CGRect frame = self.frame;
+
+        if (fabs(frame.origin.x - desiredX) > 0.5 ||
+            fabs(frame.size.width - desiredWidth) > 0.5) {
+
+            frame.origin.x = desiredX;
+            frame.size.width = desiredWidth;
+            self.frame = frame;
+
+            CGSize contentSize = self.contentSize;
+            contentSize.width = desiredWidth;
+            self.contentSize = contentSize;
+
+            [self setNeedsLayout];
+        }
+    }
+}
+
+- (void)setContentOffset:(CGPoint)contentOffset {
+    %orig(contentOffset);
+
+    if (!N15Enabled || !N15Locked) {
         return;
     }
 
-    if (!N15Locked) {
-        // Diagnostic shows the authenticated Notification Center root list
-        // retaining contentInset.top = 201, which is the empty clock area.
-        UIEdgeInsets inset = self.contentInset;
+    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
 
-        if (inset.top != 0.0) {
-            CGFloat previousTop = inset.top;
-            CGPoint offset = self.contentOffset;
+    BOOL isRootList =
+        fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
+        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
 
-            inset.top = 0.0;
-            self.contentInset = inset;
-
-            UIEdgeInsets indicatorInsets = self.verticalScrollIndicatorInsets;
-            indicatorInsets.top = 0.0;
-            self.verticalScrollIndicatorInsets = indicatorInsets;
-
-            // Only normalize the old lock-screen-position offset when we
-            // actually removed that 201pt inset. Do not fight normal scrolling.
-            if (offset.y < previousTop) {
-                offset.y = 0.0;
-                [self setContentOffset:offset animated:NO];
-            }
-        }
+    if (isRootList) {
+        N15SetNotificationHistoryRevealed(
+            contentOffset.y > -120.0
+        );
     }
 }
 
 - (void)setContentInset:(UIEdgeInsets)contentInset {
     CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
+
     BOOL isRootList =
         fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
-        CGRectGetHeight(self.bounds) >= UIScreen.mainScreen.bounds.size.height * 0.85;
+        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
 
     if (N15Enabled && !N15Locked && isRootList) {
         contentInset.top = 0.0;
@@ -1886,9 +2066,10 @@ static void N15SetLocked(BOOL locked) {
 - (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
     %orig(revealed, animated);
 
-    if (N15Enabled) {
-        // Confirmed by the iOS 15.8.8 diagnostic log.
-        N15SetNotificationHistoryRevealed(revealed);
+    if (N15Enabled && N15Locked && revealed) {
+        // Immediate hide at reveal completion. The root list's real
+        // contentOffset below remains the source of truth afterwards.
+        N15SetNotificationHistoryRevealed(YES);
     }
 }
 
@@ -1919,16 +2100,16 @@ static void N15SetLocked(BOOL locked) {
 - (void)setNotificationHistoryRevealed:(BOOL)revealed {
     %orig(revealed);
 
-    if (N15Enabled) {
-        N15SetNotificationHistoryRevealed(revealed);
+    if (N15Enabled && N15Locked && revealed) {
+        N15SetNotificationHistoryRevealed(YES);
     }
 }
 
 - (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
     %orig(revealed, animated);
 
-    if (N15Enabled) {
-        N15SetNotificationHistoryRevealed(revealed);
+    if (N15Enabled && N15Locked && revealed) {
+        N15SetNotificationHistoryRevealed(YES);
     }
 }
 
