@@ -1,6 +1,6 @@
 Package: com.openai.nine15
 Name: Nine15
-Version: 0.2.2
+Version: 0.3.0
 Architecture: iphoneos-arm64
 Description: iOS 9 inspired Lock Screen, Notification Center, notifications, banners and Now Playing for iOS 15.
 Maintainer: Nine15
