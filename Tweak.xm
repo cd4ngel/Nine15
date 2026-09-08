@@ -4,6 +4,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import <math.h>
 
 #pragma mark - Private declarations
 
