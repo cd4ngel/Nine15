@@ -234,6 +234,7 @@ static void N15SendVoid(id object, SEL selector) {
 
 static BOOL N15SystemUILocked(void) {
     Class managerClass = NSClassFromString(@"SBLockScreenManager");
+
     if (!managerClass) {
         return N15Locked;
     }
@@ -252,22 +253,25 @@ static BOOL N15SystemUILocked(void) {
 
 static void N15RequestUnlock(void) {
     Class managerClass = NSClassFromString(@"SBLockScreenManager");
+
     if (!managerClass) {
         return;
     }
 
-    id manager = N15SendId(managerClass, NSSelectorFromString(@"sharedInstance"));
+    id manager =
+        N15SendId(managerClass, NSSelectorFromString(@"sharedInstance"));
+
     if (!manager) {
         return;
     }
 
-    // This is the only path that authorizes an actual UI unlock.
     N15SlideUnlockAuthorized = YES;
 
-    SEL selector = NSSelectorFromString(@"lockScreenViewControllerRequestsUnlock");
+    SEL selector =
+        NSSelectorFromString(@"lockScreenViewControllerRequestsUnlock");
+
     N15SendVoid(manager, selector);
 }
-
 
 static id N15ObjectIvar(id object, const char *name) {
     if (!object || !name) {
@@ -275,6 +279,7 @@ static id N15ObjectIvar(id object, const char *name) {
     }
 
     Ivar ivar = class_getInstanceVariable([object class], name);
+
     if (!ivar) {
         Class currentClass = class_getSuperclass([object class]);
 
@@ -286,10 +291,6 @@ static id N15ObjectIvar(id object, const char *name) {
 
     return ivar ? object_getIvar(object, ivar) : nil;
 }
-
-
-
-
 
 static BOOL N15IsNotificationBackgroundMaterial(UIView *view) {
     if (!view) {
@@ -303,8 +304,11 @@ static BOOL N15IsNotificationBackgroundMaterial(UIView *view) {
         [className isEqualToString:@"NCMaterialView"];
 }
 
-static UIView *N15NotificationPlatterView(NCNotificationShortLookView *view) {
+static UIView *N15NotificationPlatterView(
+    NCNotificationShortLookView *view
+) {
     id platter = N15ObjectIvar(view, "_platterView");
+
     return [platter isKindOfClass:UIView.class] ? platter : nil;
 }
 
@@ -323,13 +327,6 @@ static void N15RemoveNotificationPlatter(
     view.layer.mask = nil;
     view.layer.cornerRadius = 0.0;
 
-    // iOS 15.8.8 diagnostic:
-    // NCNotificationShortLookView
-    //   -> PLPlatterView
-    //      -> MTMaterialView (cornerRadius 18.5)  <-- actual iOS 15 card
-    //      -> PLPlatterCustomContentView         <-- notification content
-    //
-    // Hide ONLY the material sibling. Do not recurse into the content tree.
     UIView *platterView = N15NotificationPlatterView(view);
 
     if (platterView) {
@@ -349,8 +346,6 @@ static void N15RemoveNotificationPlatter(
         }
     }
 
-    // Some builds still expose backgroundView. Hide it too, but do not touch
-    // any other ShortLook descendants.
     UIView *background = nil;
 
     @try {
@@ -377,11 +372,13 @@ static void N15StyleNotificationText(UIView *root) {
         if ([subview isKindOfClass:UILabel.class]) {
             UILabel *label = (UILabel *)subview;
             label.layer.filters = nil;
-            label.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
+            label.textColor =
+                [UIColor colorWithWhite:1.0 alpha:0.96];
         } else if ([subview isKindOfClass:UITextView.class]) {
             UITextView *textView = (UITextView *)subview;
             textView.layer.filters = nil;
-            textView.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
+            textView.textColor =
+                [UIColor colorWithWhite:1.0 alpha:0.96];
             textView.backgroundColor = UIColor.clearColor;
         }
 
@@ -389,7 +386,9 @@ static void N15StyleNotificationText(UIView *root) {
     }
 }
 
-static BOOL N15IsBannerShortLook(NCNotificationShortLookView *view) {
+static BOOL N15IsBannerShortLook(
+    NCNotificationShortLookView *view
+) {
     if (!view) {
         return NO;
     }
@@ -405,59 +404,80 @@ static BOOL N15IsBannerShortLook(NCNotificationShortLookView *view) {
     id delegate = nil;
 
     @try {
-        if ([controller respondsToSelector:NSSelectorFromString(@"delegate")]) {
-            delegate = [controller valueForKey:@"delegate"];
+        if ([controller respondsToSelector:
+            NSSelectorFromString(@"delegate")]) {
+
+            delegate =
+                [controller valueForKey:@"delegate"];
         }
     } @catch (__unused NSException *exception) {
         delegate = nil;
     }
 
-    Class bannerClass = NSClassFromString(@"SBNotificationBannerDestination");
-    return bannerClass && [delegate isKindOfClass:bannerClass];
+    Class bannerClass =
+        NSClassFromString(@"SBNotificationBannerDestination");
+
+    return bannerClass &&
+           [delegate isKindOfClass:bannerClass];
 }
 
-static void N15EnsureCoverBlur(CSCoverSheetViewController *controller) {
+static void N15EnsureCoverBlur(
+    CSCoverSheetViewController *controller
+) {
     if (!controller || !N15Enabled) {
         return;
     }
 
-    UIVisualEffectView *blurView = N15GetCoverBlur(controller);
+    UIVisualEffectView *blurView =
+        N15GetCoverBlur(controller);
 
     if (!blurView) {
         UIBlurEffect *effect =
-            [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
+            [UIBlurEffect effectWithStyle:
+                UIBlurEffectStyleDark];
 
-        blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
+        blurView =
+            [[UIVisualEffectView alloc] initWithEffect:effect];
+
         blurView.userInteractionEnabled = NO;
         blurView.alpha = 0.0;
+
         blurView.autoresizingMask =
             UIViewAutoresizingFlexibleWidth |
             UIViewAutoresizingFlexibleHeight;
 
         N15SetCoverBlur(controller, blurView);
-        [controller.view insertSubview:blurView atIndex:0];
+
+        [controller.view insertSubview:blurView
+                               atIndex:0];
     }
 
     blurView.frame = controller.view.bounds;
 }
 
 static void N15UpdateNotificationBackdrop(void) {
-    CSCoverSheetViewController *controller = N15CurrentCoverController;
+    CSCoverSheetViewController *controller =
+        N15CurrentCoverController;
+
     if (!controller) {
         return;
     }
 
     N15EnsureCoverBlur(controller);
 
-    UIVisualEffectView *blurView = N15GetCoverBlur(controller);
+    UIVisualEffectView *blurView =
+        N15GetCoverBlur(controller);
+
     if (!blurView) {
         return;
     }
 
-    // Lock Screen: blur only when notifications are present.
-    // Notification Center (authenticated CoverSheet): keep the classic blurred backdrop.
-    BOOL shouldShow = N15Enabled && (!N15Locked || N15NotificationCount > 0);
-    CGFloat targetAlpha = shouldShow ? 1.0 : 0.0;
+    BOOL shouldShow =
+        N15Enabled &&
+        (!N15Locked || N15NotificationCount > 0);
+
+    CGFloat targetAlpha =
+        shouldShow ? 1.0 : 0.0;
 
     if (fabs(blurView.alpha - targetAlpha) < 0.01) {
         return;
@@ -465,8 +485,9 @@ static void N15UpdateNotificationBackdrop(void) {
 
     [UIView animateWithDuration:0.20
                           delay:0.0
-                        options:UIViewAnimationOptionCurveEaseInOut |
-                                UIViewAnimationOptionBeginFromCurrentState
+                        options:
+            UIViewAnimationOptionCurveEaseInOut |
+            UIViewAnimationOptionBeginFromCurrentState
                      animations:^{
         blurView.alpha = targetAlpha;
     } completion:nil];
@@ -476,12 +497,18 @@ static void N15SetNotificationCount(NSUInteger count) {
     N15NotificationCount = count;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        N15SendVoid((id)N15CurrentOverlay, NSSelectorFromString(@"updateLockedState"));
+        N15SendVoid(
+            (id)N15CurrentOverlay,
+            NSSelectorFromString(@"updateLockedState")
+        );
+
         N15UpdateNotificationBackdrop();
     });
 }
 
-static void N15SetNotificationHistoryRevealed(BOOL revealed) {
+static void N15SetNotificationHistoryRevealed(
+    BOOL revealed
+) {
     if (N15NotificationHistoryRevealed == revealed) {
         return;
     }
@@ -503,79 +530,108 @@ typedef void (*N15MRGetNowPlayingInfoFunction)(
     void (^completion)(CFDictionaryRef information)
 );
 
-
 typedef void (*N15MRGetNowPlayingApplicationIsPlayingFunction)(
     dispatch_queue_t queue,
     void (^completion)(Boolean isPlaying)
 );
 
-typedef Boolean (*N15MRSendCommandFunction)(NSInteger command, id userInfo);
+typedef Boolean (*N15MRSendCommandFunction)(
+    NSInteger command,
+    id userInfo
+);
 
 static void *N15MediaRemoteHandle(void) {
     static void *handle = NULL;
     static dispatch_once_t onceToken;
 
     dispatch_once(&onceToken, ^{
-        handle = dlopen(N15MediaRemotePath.UTF8String, RTLD_LAZY);
+        handle =
+            dlopen(
+                N15MediaRemotePath.UTF8String,
+                RTLD_LAZY
+            );
     });
 
     return handle;
 }
 
-static N15MRGetNowPlayingInfoFunction N15GetNowPlayingInfoFunction(void) {
+static N15MRGetNowPlayingInfoFunction
+N15GetNowPlayingInfoFunction(void) {
     void *handle = N15MediaRemoteHandle();
+
     if (!handle) {
         return NULL;
     }
 
-    return (N15MRGetNowPlayingInfoFunction)dlsym(
-        handle,
-        "MRMediaRemoteGetNowPlayingInfo"
-    );
+    return
+        (N15MRGetNowPlayingInfoFunction)
+        dlsym(
+            handle,
+            "MRMediaRemoteGetNowPlayingInfo"
+        );
 }
-
 
 static N15MRGetNowPlayingApplicationIsPlayingFunction
 N15GetNowPlayingApplicationIsPlayingFunction(void) {
     void *handle = N15MediaRemoteHandle();
+
     if (!handle) {
         return NULL;
     }
 
-    return (N15MRGetNowPlayingApplicationIsPlayingFunction)dlsym(
-        handle,
-        "MRMediaRemoteGetNowPlayingApplicationIsPlaying"
-    );
+    return
+        (N15MRGetNowPlayingApplicationIsPlayingFunction)
+        dlsym(
+            handle,
+            "MRMediaRemoteGetNowPlayingApplicationIsPlaying"
+        );
 }
 
-static N15MRSendCommandFunction N15SendCommandFunction(void) {
+static N15MRSendCommandFunction
+N15SendCommandFunction(void) {
     void *handle = N15MediaRemoteHandle();
+
     if (!handle) {
         return NULL;
     }
 
-    return (N15MRSendCommandFunction)dlsym(
-        handle,
-        "MRMediaRemoteSendCommand"
-    );
+    return
+        (N15MRSendCommandFunction)
+        dlsym(
+            handle,
+            "MRMediaRemoteSendCommand"
+        );
 }
 
-static CFStringRef N15MediaRemoteKey(const char *symbolName) {
+static CFStringRef N15MediaRemoteKey(
+    const char *symbolName
+) {
     void *handle = N15MediaRemoteHandle();
+
     if (!handle) {
         return NULL;
     }
 
-    CFStringRef *keyPointer = (CFStringRef *)dlsym(handle, symbolName);
+    CFStringRef *keyPointer =
+        (CFStringRef *)dlsym(
+            handle,
+            symbolName
+        );
+
     return keyPointer ? *keyPointer : NULL;
 }
 
-static id N15InfoValue(NSDictionary *info, const char *symbolName) {
+static id N15InfoValue(
+    NSDictionary *info,
+    const char *symbolName
+) {
     if (!info) {
         return nil;
     }
 
-    CFStringRef key = N15MediaRemoteKey(symbolName);
+    CFStringRef key =
+        N15MediaRemoteKey(symbolName);
+
     if (!key) {
         return nil;
     }
@@ -583,7 +639,10 @@ static id N15InfoValue(NSDictionary *info, const char *symbolName) {
     return info[(__bridge NSString *)key];
 }
 
-typedef NS_ENUM(NSInteger, N15MediaRemoteCommand) {
+typedef NS_ENUM(
+    NSInteger,
+    N15MediaRemoteCommand
+) {
     N15MediaRemoteCommandPlay = 0,
     N15MediaRemoteCommandPause = 1,
     N15MediaRemoteCommandTogglePlayPause = 2,
@@ -592,8 +651,12 @@ typedef NS_ENUM(NSInteger, N15MediaRemoteCommand) {
     N15MediaRemoteCommandPreviousTrack = 5
 };
 
-static void N15SendMediaCommand(N15MediaRemoteCommand command) {
-    N15MRSendCommandFunction function = N15SendCommandFunction();
+static void N15SendMediaCommand(
+    N15MediaRemoteCommand command
+) {
+    N15MRSendCommandFunction function =
+        N15SendCommandFunction();
+
     if (!function) {
         return;
     }
@@ -604,30 +667,49 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 #pragma mark - Reusable UI
 
 @interface N15GlintLabel : UILabel
-@property(nonatomic, strong) CAGradientLayer *glintLayer;
+@property(nonatomic, strong)
+    CAGradientLayer *glintLayer;
 @end
 
 @implementation N15GlintLabel
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
+
     if (!self) {
         return nil;
     }
 
     self.textAlignment = NSTextAlignmentCenter;
-    self.font = [UIFont systemFontOfSize:21.0 weight:UIFontWeightLight];
+
+    self.font =
+        [UIFont systemFontOfSize:21.0
+                         weight:UIFontWeightLight];
+
     self.textColor = UIColor.whiteColor;
 
     _glintLayer = [CAGradientLayer layer];
+
     _glintLayer.colors = @[
-        (__bridge id)[UIColor colorWithWhite:1 alpha:0.36].CGColor,
-        (__bridge id)UIColor.whiteColor.CGColor,
-        (__bridge id)[UIColor colorWithWhite:1 alpha:0.36].CGColor
+        (__bridge id)
+        [UIColor colorWithWhite:1 alpha:0.36].CGColor,
+
+        (__bridge id)
+        UIColor.whiteColor.CGColor,
+
+        (__bridge id)
+        [UIColor colorWithWhite:1 alpha:0.36].CGColor
     ];
-    _glintLayer.locations = @[@0.0, @0.5, @1.0];
-    _glintLayer.startPoint = CGPointMake(0, 0.5);
-    _glintLayer.endPoint = CGPointMake(1, 0.5);
+
+    _glintLayer.locations =
+        @[@0.0, @0.5, @1.0];
+
+    _glintLayer.startPoint =
+        CGPointMake(0, 0.5);
+
+    _glintLayer.endPoint =
+        CGPointMake(1, 0.5);
+
     self.layer.mask = _glintLayer;
 
     return self;
@@ -635,17 +717,28 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+
     self.glintLayer.frame = self.bounds;
 
-    if (![self.glintLayer animationForKey:@"nine15.glint"]) {
-        CABasicAnimation *animation =
-            [CABasicAnimation animationWithKeyPath:@"locations"];
+    if (![self.glintLayer animationForKey:
+        @"nine15.glint"]) {
 
-        animation.fromValue = @[@-1.0, @-0.5, @0.0];
-        animation.toValue = @[@1.0, @1.5, @2.0];
+        CABasicAnimation *animation =
+            [CABasicAnimation
+                animationWithKeyPath:@"locations"];
+
+        animation.fromValue =
+            @[@-1.0, @-0.5, @0.0];
+
+        animation.toValue =
+            @[@1.0, @1.5, @2.0];
+
         animation.duration = 2.2;
         animation.repeatCount = HUGE_VALF;
-        [self.glintLayer addAnimation:animation forKey:@"nine15.glint"];
+
+        [self.glintLayer
+            addAnimation:animation
+                  forKey:@"nine15.glint"];
     }
 }
 
@@ -654,23 +747,46 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 #pragma mark - Classic media view
 
 @interface N15MediaView : UIView
-@property(nonatomic, strong) UIVisualEffectView *blurView;
-@property(nonatomic, strong) UILabel *titleLabel;
-@property(nonatomic, strong) UILabel *artistLabel;
-@property(nonatomic, strong) UIImageView *artworkView;
-@property(nonatomic, strong) UIButton *previousButton;
-@property(nonatomic, strong) UIButton *playPauseButton;
-@property(nonatomic, strong) UIButton *nextButton;
-@property(nonatomic, strong) NSTimer *refreshTimer;
-@property(nonatomic, assign) BOOL hasContent;
-@property(nonatomic, assign) BOOL isPlaying;
+
+@property(nonatomic, strong)
+    UIVisualEffectView *blurView;
+
+@property(nonatomic, strong)
+    UILabel *titleLabel;
+
+@property(nonatomic, strong)
+    UILabel *artistLabel;
+
+@property(nonatomic, strong)
+    UIImageView *artworkView;
+
+@property(nonatomic, strong)
+    UIButton *previousButton;
+
+@property(nonatomic, strong)
+    UIButton *playPauseButton;
+
+@property(nonatomic, strong)
+    UIButton *nextButton;
+
+@property(nonatomic, strong)
+    NSTimer *refreshTimer;
+
+@property(nonatomic, assign)
+    BOOL hasContent;
+
+@property(nonatomic, assign)
+    BOOL isPlaying;
+
 - (void)updatePlaybackButton;
+
 @end
 
 @implementation N15MediaView
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
+
     if (!self) {
         return nil;
     }
@@ -679,71 +795,137 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     self.hidden = YES;
 
     UIBlurEffect *effect =
-        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
+        [UIBlurEffect effectWithStyle:
+            UIBlurEffectStyleSystemChromeMaterialDark];
 
-    _blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
+    _blurView =
+        [[UIVisualEffectView alloc]
+            initWithEffect:effect];
+
     [self addSubview:_blurView];
 
     _titleLabel = [[UILabel alloc] init];
-    _titleLabel.textColor = UIColor.whiteColor;
-    _titleLabel.textAlignment = NSTextAlignmentCenter;
-    _titleLabel.font = [UIFont systemFontOfSize:21 weight:UIFontWeightSemibold];
-    _titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+
+    _titleLabel.textColor =
+        UIColor.whiteColor;
+
+    _titleLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _titleLabel.font =
+        [UIFont systemFontOfSize:21
+                         weight:UIFontWeightSemibold];
+
+    _titleLabel.lineBreakMode =
+        NSLineBreakByTruncatingTail;
+
     [self addSubview:_titleLabel];
 
     _artistLabel = [[UILabel alloc] init];
-    _artistLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.70];
-    _artistLabel.textAlignment = NSTextAlignmentCenter;
-    _artistLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightRegular];
-    _artistLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+
+    _artistLabel.textColor =
+        [UIColor colorWithWhite:1.0
+                          alpha:0.70];
+
+    _artistLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _artistLabel.font =
+        [UIFont systemFontOfSize:17
+                         weight:UIFontWeightRegular];
+
+    _artistLabel.lineBreakMode =
+        NSLineBreakByTruncatingTail;
+
     [self addSubview:_artistLabel];
 
     _artworkView = [[UIImageView alloc] init];
-    _artworkView.contentMode = UIViewContentModeScaleAspectFill;
+
+    _artworkView.contentMode =
+        UIViewContentModeScaleAspectFill;
+
     _artworkView.clipsToBounds = YES;
     _artworkView.layer.cornerRadius = 3.0;
+
     [self addSubview:_artworkView];
 
     UIImageSymbolConfiguration *configuration =
-        [UIImageSymbolConfiguration configurationWithPointSize:28
-                                                        weight:UIImageSymbolWeightRegular];
+        [UIImageSymbolConfiguration
+            configurationWithPointSize:28
+                                weight:
+                UIImageSymbolWeightRegular];
 
-    _previousButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_previousButton setImage:[UIImage systemImageNamed:@"backward.fill"
-                                      withConfiguration:configuration]
-                     forState:UIControlStateNormal];
-    _previousButton.tintColor = UIColor.whiteColor;
-    [_previousButton addTarget:self
-                        action:@selector(previousTapped)
-              forControlEvents:UIControlEventTouchUpInside];
+    _previousButton =
+        [UIButton buttonWithType:
+            UIButtonTypeSystem];
+
+    [_previousButton
+        setImage:
+            [UIImage
+                systemImageNamed:@"backward.fill"
+                withConfiguration:configuration]
+        forState:UIControlStateNormal];
+
+    _previousButton.tintColor =
+        UIColor.whiteColor;
+
+    [_previousButton
+        addTarget:self
+           action:@selector(previousTapped)
+ forControlEvents:UIControlEventTouchUpInside];
+
     [self addSubview:_previousButton];
 
-    _playPauseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_playPauseButton setImage:[UIImage systemImageNamed:@"play.fill"
-                                       withConfiguration:configuration]
-                      forState:UIControlStateNormal];
-    _playPauseButton.tintColor = UIColor.whiteColor;
-    [_playPauseButton addTarget:self
-                         action:@selector(playPauseTapped)
-               forControlEvents:UIControlEventTouchUpInside];
+    _playPauseButton =
+        [UIButton buttonWithType:
+            UIButtonTypeSystem];
+
+    [_playPauseButton
+        setImage:
+            [UIImage
+                systemImageNamed:@"play.fill"
+                withConfiguration:configuration]
+        forState:UIControlStateNormal];
+
+    _playPauseButton.tintColor =
+        UIColor.whiteColor;
+
+    [_playPauseButton
+        addTarget:self
+           action:@selector(playPauseTapped)
+ forControlEvents:UIControlEventTouchUpInside];
+
     [self addSubview:_playPauseButton];
 
-    _nextButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_nextButton setImage:[UIImage systemImageNamed:@"forward.fill"
-                                  withConfiguration:configuration]
-                 forState:UIControlStateNormal];
-    _nextButton.tintColor = UIColor.whiteColor;
-    [_nextButton addTarget:self
-                    action:@selector(nextTapped)
-          forControlEvents:UIControlEventTouchUpInside];
+    _nextButton =
+        [UIButton buttonWithType:
+            UIButtonTypeSystem];
+
+    [_nextButton
+        setImage:
+            [UIImage
+                systemImageNamed:@"forward.fill"
+                withConfiguration:configuration]
+        forState:UIControlStateNormal];
+
+    _nextButton.tintColor =
+        UIColor.whiteColor;
+
+    [_nextButton
+        addTarget:self
+           action:@selector(nextTapped)
+ forControlEvents:UIControlEventTouchUpInside];
+
     [self addSubview:_nextButton];
 
     _refreshTimer =
-        [NSTimer scheduledTimerWithTimeInterval:1.5
-                                         target:self
-                                       selector:@selector(refreshNowPlaying)
-                                       userInfo:nil
-                                        repeats:YES];
+        [NSTimer
+            scheduledTimerWithTimeInterval:1.5
+                                    target:self
+                                  selector:
+                @selector(refreshNowPlaying)
+                                  userInfo:nil
+                                   repeats:YES];
 
     [self refreshNowPlaying];
 
@@ -759,60 +941,116 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 
     self.blurView.frame = self.bounds;
 
-    CGFloat width = CGRectGetWidth(self.bounds);
-    CGFloat safeTop = self.safeAreaInsets.top;
-    CGFloat artworkSize = MIN(width - 54.0, 320.0);
+    CGFloat width =
+        CGRectGetWidth(self.bounds);
 
-    self.titleLabel.frame = CGRectMake(28, safeTop + 32, width - 56, 28);
-    self.artistLabel.frame = CGRectMake(28, safeTop + 62, width - 56, 24);
+    CGFloat safeTop =
+        self.safeAreaInsets.top;
 
-    self.artworkView.frame = CGRectMake(
-        (width - artworkSize) / 2.0,
-        safeTop + 110,
-        artworkSize,
-        artworkSize
-    );
+    CGFloat artworkSize =
+        MIN(width - 54.0, 320.0);
 
-    CGFloat controlsY = CGRectGetMaxY(self.artworkView.frame) + 24.0;
+    self.titleLabel.frame =
+        CGRectMake(
+            28,
+            safeTop + 32,
+            width - 56,
+            28
+        );
+
+    self.artistLabel.frame =
+        CGRectMake(
+            28,
+            safeTop + 62,
+            width - 56,
+            24
+        );
+
+    self.artworkView.frame =
+        CGRectMake(
+            (width - artworkSize) / 2.0,
+            safeTop + 110,
+            artworkSize,
+            artworkSize
+        );
+
+    CGFloat controlsY =
+        CGRectGetMaxY(
+            self.artworkView.frame
+        ) + 24.0;
+
     CGFloat buttonWidth = 72.0;
 
     self.previousButton.frame =
-        CGRectMake(width / 2.0 - 120.0, controlsY, buttonWidth, 56.0);
+        CGRectMake(
+            width / 2.0 - 120.0,
+            controlsY,
+            buttonWidth,
+            56.0
+        );
 
     self.playPauseButton.frame =
-        CGRectMake(width / 2.0 - buttonWidth / 2.0, controlsY, buttonWidth, 56.0);
+        CGRectMake(
+            width / 2.0 -
+                buttonWidth / 2.0,
+            controlsY,
+            buttonWidth,
+            56.0
+        );
 
     self.nextButton.frame =
-        CGRectMake(width / 2.0 + 48.0, controlsY, buttonWidth, 56.0);
+        CGRectMake(
+            width / 2.0 + 48.0,
+            controlsY,
+            buttonWidth,
+            56.0
+        );
 }
 
 - (void)previousTapped {
-    N15SendMediaCommand(N15MediaRemoteCommandPreviousTrack);
+    N15SendMediaCommand(
+        N15MediaRemoteCommandPreviousTrack
+    );
 }
 
 - (void)updatePlaybackButton {
-    NSString *symbolName = self.isPlaying ? @"pause.fill" : @"play.fill";
+    NSString *symbolName =
+        self.isPlaying
+        ? @"pause.fill"
+        : @"play.fill";
 
     UIImageSymbolConfiguration *configuration =
-        [UIImageSymbolConfiguration configurationWithPointSize:28
-                                                        weight:UIImageSymbolWeightRegular];
+        [UIImageSymbolConfiguration
+            configurationWithPointSize:28
+                                weight:
+                UIImageSymbolWeightRegular];
 
     UIImage *image =
-        [UIImage systemImageNamed:symbolName
-                withConfiguration:configuration];
+        [UIImage
+            systemImageNamed:symbolName
+            withConfiguration:configuration];
 
-    [self.playPauseButton setImage:image forState:UIControlStateNormal];
+    [self.playPauseButton
+        setImage:image
+        forState:UIControlStateNormal];
 }
 
 - (void)playPauseTapped {
-    // Update immediately for responsive UI, then reconcile with MediaRemote.
     self.isPlaying = !self.isPlaying;
+
     [self updatePlaybackButton];
 
-    N15SendMediaCommand(N15MediaRemoteCommandTogglePlayPause);
+    N15SendMediaCommand(
+        N15MediaRemoteCommandTogglePlayPause
+    );
 
     dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.30 * NSEC_PER_SEC)),
+        dispatch_time(
+            DISPATCH_TIME_NOW,
+            (int64_t)(
+                0.30 * NSEC_PER_SEC
+            )
+        ),
         dispatch_get_main_queue(),
         ^{
             [self refreshNowPlaying];
@@ -821,11 +1059,15 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 }
 
 - (void)nextTapped {
-    N15SendMediaCommand(N15MediaRemoteCommandNextTrack);
+    N15SendMediaCommand(
+        N15MediaRemoteCommandNextTrack
+    );
 }
 
 - (void)refreshNowPlaying {
-    N15MRGetNowPlayingInfoFunction function = N15GetNowPlayingInfoFunction();
+    N15MRGetNowPlayingInfoFunction function =
+        N15GetNowPlayingInfoFunction();
+
     if (!function) {
         self.hidden = YES;
         self.hasContent = NO;
@@ -834,65 +1076,116 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 
     __weak typeof(self) weakSelf = self;
 
-    function(dispatch_get_main_queue(), ^(CFDictionaryRef information) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
+    function(
+        dispatch_get_main_queue(),
+        ^(CFDictionaryRef information) {
+
+        __strong typeof(weakSelf) strongSelf =
+            weakSelf;
+
         if (!strongSelf) {
             return;
         }
 
-        NSDictionary *info = (__bridge NSDictionary *)information;
+        NSDictionary *info =
+            (__bridge NSDictionary *)
+            information;
 
         NSString *title =
-            N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoTitle");
+            N15InfoValue(
+                info,
+                "kMRMediaRemoteNowPlayingInfoTitle"
+            );
 
         NSString *artist =
-            N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoArtist");
+            N15InfoValue(
+                info,
+                "kMRMediaRemoteNowPlayingInfoArtist"
+            );
 
         NSData *artworkData =
-            N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoArtworkData");
+            N15InfoValue(
+                info,
+                "kMRMediaRemoteNowPlayingInfoArtworkData"
+            );
 
         NSNumber *playbackRate =
-            N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoPlaybackRate");
+            N15InfoValue(
+                info,
+                "kMRMediaRemoteNowPlayingInfoPlaybackRate"
+            );
 
         BOOL hasContent =
-            title.length > 0 || artist.length > 0 || artworkData.length > 0;
+            title.length > 0 ||
+            artist.length > 0 ||
+            artworkData.length > 0;
 
-        strongSelf.hasContent = hasContent;
-        strongSelf.hidden = !hasContent || !N15Locked;
+        strongSelf.hasContent =
+            hasContent;
 
-        strongSelf.titleLabel.text = title.length ? title : @"Now Playing";
-        strongSelf.artistLabel.text = artist ?: @"";
+        strongSelf.hidden =
+            !hasContent || !N15Locked;
 
-        if ([playbackRate isKindOfClass:NSNumber.class]) {
-            strongSelf.isPlaying = playbackRate.doubleValue > 0.01;
-            [strongSelf updatePlaybackButton];
+        strongSelf.titleLabel.text =
+            title.length
+            ? title
+            : @"Now Playing";
+
+        strongSelf.artistLabel.text =
+            artist ?: @"";
+
+        if ([playbackRate
+            isKindOfClass:NSNumber.class]) {
+
+            strongSelf.isPlaying =
+                playbackRate.doubleValue >
+                0.01;
+
+            [strongSelf
+                updatePlaybackButton];
         }
 
         if (artworkData.length > 0) {
-            strongSelf.artworkView.image = [UIImage imageWithData:artworkData];
-            strongSelf.artworkView.contentMode = UIViewContentModeScaleAspectFill;
+            strongSelf.artworkView.image =
+                [UIImage
+                    imageWithData:artworkData];
+
+            strongSelf.artworkView.contentMode =
+                UIViewContentModeScaleAspectFill;
         } else {
             strongSelf.artworkView.image =
-                [UIImage systemImageNamed:@"music.note"];
+                [UIImage
+                    systemImageNamed:
+                        @"music.note"];
+
             strongSelf.artworkView.tintColor =
-                [UIColor colorWithWhite:1.0 alpha:0.65];
-            strongSelf.artworkView.contentMode = UIViewContentModeScaleAspectFit;
+                [UIColor
+                    colorWithWhite:1.0
+                             alpha:0.65];
+
+            strongSelf.artworkView.contentMode =
+                UIViewContentModeScaleAspectFit;
         }
 
-        N15MRGetNowPlayingApplicationIsPlayingFunction playingFunction =
-            N15GetNowPlayingApplicationIsPlayingFunction();
+        N15MRGetNowPlayingApplicationIsPlayingFunction
+            playingFunction =
+                N15GetNowPlayingApplicationIsPlayingFunction();
 
         if (playingFunction) {
             playingFunction(
                 dispatch_get_main_queue(),
                 ^(Boolean isPlaying) {
-                    strongSelf.isPlaying = (BOOL)isPlaying;
-                    [strongSelf updatePlaybackButton];
+                    strongSelf.isPlaying =
+                        (BOOL)isPlaying;
+
+                    [strongSelf
+                        updatePlaybackButton];
                 }
             );
         }
 
-        [strongSelf.superview setNeedsLayout];
+        [strongSelf.superview
+            setNeedsLayout];
     });
 }
 
@@ -900,81 +1193,157 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 
 #pragma mark - Lock screen overlay
 
-@interface N15LockOverlayView : UIView <UIGestureRecognizerDelegate>
-@property(nonatomic, strong) UILabel *timeLabel;
-@property(nonatomic, strong) UILabel *dateLabel;
-@property(nonatomic, strong) UIView *separatorView;
-@property(nonatomic, strong) UIView *sliderHitView;
-@property(nonatomic, strong) UILabel *chevronLabel;
-@property(nonatomic, strong) N15GlintLabel *slideLabel;
-@property(nonatomic, strong) UIPanGestureRecognizer *slideGesture;
-@property(nonatomic, strong) N15MediaView *mediaView;
-@property(nonatomic, strong) NSTimer *clockTimer;
-@property(nonatomic, assign) CGFloat slideProgress;
+@interface N15LockOverlayView :
+    UIView <UIGestureRecognizerDelegate>
+
+@property(nonatomic, strong)
+    UILabel *timeLabel;
+
+@property(nonatomic, strong)
+    UILabel *dateLabel;
+
+@property(nonatomic, strong)
+    UIView *separatorView;
+
+@property(nonatomic, strong)
+    UIView *sliderHitView;
+
+@property(nonatomic, strong)
+    UILabel *chevronLabel;
+
+@property(nonatomic, strong)
+    N15GlintLabel *slideLabel;
+
+@property(nonatomic, strong)
+    UIPanGestureRecognizer *slideGesture;
+
+@property(nonatomic, strong)
+    N15MediaView *mediaView;
+
+@property(nonatomic, strong)
+    NSTimer *clockTimer;
+
+@property(nonatomic, assign)
+    CGFloat slideProgress;
+
 - (void)updateLockedState;
+
 @end
 
 @implementation N15LockOverlayView
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
+
     if (!self) {
         return nil;
     }
 
-    self.backgroundColor = UIColor.clearColor;
+    self.backgroundColor =
+        UIColor.clearColor;
+
     self.userInteractionEnabled = YES;
 
     _timeLabel = [[UILabel alloc] init];
-    _timeLabel.textAlignment = NSTextAlignmentCenter;
-    _timeLabel.textColor = UIColor.whiteColor;
-    _timeLabel.font = [UIFont systemFontOfSize:64 weight:UIFontWeightThin];
-    _timeLabel.adjustsFontSizeToFitWidth = YES;
+
+    _timeLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _timeLabel.textColor =
+        UIColor.whiteColor;
+
+    _timeLabel.font =
+        [UIFont systemFontOfSize:64
+                         weight:UIFontWeightThin];
+
+    _timeLabel.adjustsFontSizeToFitWidth =
+        YES;
+
     [self addSubview:_timeLabel];
 
     _dateLabel = [[UILabel alloc] init];
-    _dateLabel.textAlignment = NSTextAlignmentCenter;
-    _dateLabel.textColor = UIColor.whiteColor;
-    _dateLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightRegular];
+
+    _dateLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _dateLabel.textColor =
+        UIColor.whiteColor;
+
+    _dateLabel.font =
+        [UIFont systemFontOfSize:17
+                         weight:UIFontWeightRegular];
+
     [self addSubview:_dateLabel];
 
     _separatorView = [[UIView alloc] init];
+
     _separatorView.backgroundColor =
-        [UIColor colorWithWhite:1.0 alpha:0.28];
+        [UIColor colorWithWhite:1.0
+                          alpha:0.28];
+
     [self addSubview:_separatorView];
 
     _sliderHitView = [[UIView alloc] init];
-    _sliderHitView.backgroundColor = UIColor.clearColor;
-    _sliderHitView.userInteractionEnabled = YES;
+
+    _sliderHitView.backgroundColor =
+        UIColor.clearColor;
+
+    _sliderHitView.userInteractionEnabled =
+        YES;
+
     [self addSubview:_sliderHitView];
 
     _chevronLabel = [[UILabel alloc] init];
-    _chevronLabel.text = @"›";
-    _chevronLabel.textAlignment = NSTextAlignmentCenter;
-    _chevronLabel.textColor = [UIColor colorWithWhite:1 alpha:0.85];
-    _chevronLabel.font = [UIFont systemFontOfSize:38 weight:UIFontWeightLight];
-    [_sliderHitView addSubview:_chevronLabel];
 
-    _slideLabel = [[N15GlintLabel alloc] init];
-    _slideLabel.text = @"slide to unlock";
-    [_sliderHitView addSubview:_slideLabel];
+    _chevronLabel.text = @"›";
+
+    _chevronLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _chevronLabel.textColor =
+        [UIColor colorWithWhite:1
+                          alpha:0.85];
+
+    _chevronLabel.font =
+        [UIFont systemFontOfSize:38
+                         weight:UIFontWeightLight];
+
+    [_sliderHitView
+        addSubview:_chevronLabel];
+
+    _slideLabel =
+        [[N15GlintLabel alloc] init];
+
+    _slideLabel.text =
+        @"slide to unlock";
+
+    [_sliderHitView
+        addSubview:_slideLabel];
 
     _slideGesture =
-        [[UIPanGestureRecognizer alloc] initWithTarget:self
-                                               action:@selector(handleSlide:)];
+        [[UIPanGestureRecognizer alloc]
+            initWithTarget:self
+                    action:
+                @selector(handleSlide:)];
+
     _slideGesture.delegate = self;
-    [_sliderHitView addGestureRecognizer:_slideGesture];
 
+    [_sliderHitView
+        addGestureRecognizer:_slideGesture];
 
-    _mediaView = [[N15MediaView alloc] init];
+    _mediaView =
+        [[N15MediaView alloc] init];
+
     [self addSubview:_mediaView];
 
     _clockTimer =
-        [NSTimer scheduledTimerWithTimeInterval:15.0
-                                         target:self
-                                       selector:@selector(updateClock)
-                                       userInfo:nil
-                                        repeats:YES];
+        [NSTimer
+            scheduledTimerWithTimeInterval:15.0
+                                    target:self
+                                  selector:
+                @selector(updateClock)
+                                  userInfo:nil
+                                   repeats:YES];
 
     [self updateClock];
     [self updateLockedState];
@@ -986,13 +1355,19 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     [self.clockTimer invalidate];
 }
 
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hitView = [super hitTest:point withEvent:event];
+- (UIView *)hitTest:
+    (CGPoint)point
+        withEvent:(UIEvent *)event {
+
+    UIView *hitView =
+        [super hitTest:point
+             withEvent:event];
 
     if (hitView == self ||
         hitView == self.timeLabel ||
         hitView == self.dateLabel ||
         hitView == self.separatorView) {
+
         return nil;
     }
 
@@ -1002,117 +1377,223 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 - (void)layoutSubviews {
     [super layoutSubviews];
 
-    CGFloat width = CGRectGetWidth(self.bounds);
-    CGFloat height = CGRectGetHeight(self.bounds);
-    CGFloat safeTop = self.safeAreaInsets.top;
-    CGFloat safeBottom = self.safeAreaInsets.bottom;
+    CGFloat width =
+        CGRectGetWidth(self.bounds);
+
+    CGFloat height =
+        CGRectGetHeight(self.bounds);
+
+    CGFloat safeTop =
+        self.safeAreaInsets.top;
+
+    CGFloat safeBottom =
+        self.safeAreaInsets.bottom;
 
     self.timeLabel.frame =
-        CGRectMake(14, safeTop + 18, width - 28, 82);
+        CGRectMake(
+            14,
+            safeTop + 18,
+            width - 28,
+            82
+        );
 
     self.dateLabel.frame =
-        CGRectMake(14, safeTop + 91, width - 28, 30);
+        CGRectMake(
+            14,
+            safeTop + 91,
+            width - 28,
+            30
+        );
 
     self.separatorView.frame =
-        CGRectMake(0, safeTop + 130, width, 0.5);
+        CGRectMake(
+            0,
+            safeTop + 130,
+            width,
+            0.5
+        );
 
-    CGFloat sliderHeight = 88.0 + safeBottom;
+    CGFloat sliderHeight =
+        88.0 + safeBottom;
+
     self.sliderHitView.frame =
-        CGRectMake(0, height - sliderHeight, width, sliderHeight);
+        CGRectMake(
+            0,
+            height - sliderHeight,
+            width,
+            sliderHeight
+        );
 
     self.chevronLabel.frame =
-        CGRectMake(18, 0, 44, 72);
+        CGRectMake(
+            18,
+            0,
+            44,
+            72
+        );
 
     self.slideLabel.frame =
-        CGRectMake(56, 0, width - 112, 72);
+        CGRectMake(
+            56,
+            0,
+            width - 112,
+            72
+        );
 
-    self.mediaView.frame = self.bounds;
+    self.mediaView.frame =
+        self.bounds;
 
-    // The player is full-screen, so keep slide-to-unlock above it.
-    [self bringSubviewToFront:self.sliderHitView];
+    [self bringSubviewToFront:
+        self.sliderHitView];
 
-    [self updateSlideTransformAnimated:NO];
+    [self
+        updateSlideTransformAnimated:NO];
 }
 
 - (void)updateClock {
     NSDate *now = [NSDate date];
 
-    NSDateFormatter *timeFormatter = [[NSDateFormatter alloc] init];
-    timeFormatter.locale = NSLocale.currentLocale;
+    NSDateFormatter *timeFormatter =
+        [[NSDateFormatter alloc] init];
+
+    timeFormatter.locale =
+        NSLocale.currentLocale;
+
     timeFormatter.dateFormat =
-        [NSDateFormatter dateFormatFromTemplate:@"j:mm"
-                                         options:0
-                                          locale:NSLocale.currentLocale];
+        [NSDateFormatter
+            dateFormatFromTemplate:@"j:mm"
+                           options:0
+                            locale:
+                NSLocale.currentLocale];
 
-    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
-    dateFormatter.locale = NSLocale.currentLocale;
+    NSDateFormatter *dateFormatter =
+        [[NSDateFormatter alloc] init];
+
+    dateFormatter.locale =
+        NSLocale.currentLocale;
+
     dateFormatter.dateFormat =
-        [NSDateFormatter dateFormatFromTemplate:@"EEEE d MMMM"
-                                         options:0
-                                          locale:NSLocale.currentLocale];
+        [NSDateFormatter
+            dateFormatFromTemplate:
+                @"EEEE d MMMM"
+                           options:0
+                            locale:
+                NSLocale.currentLocale];
 
-    self.timeLabel.text = [timeFormatter stringFromDate:now];
-    self.dateLabel.text = [dateFormatter stringFromDate:now];
+    self.timeLabel.text =
+        [timeFormatter
+            stringFromDate:now];
+
+    self.dateLabel.text =
+        [dateFormatter
+            stringFromDate:now];
 }
 
 - (void)updateLockedState {
-    BOOL showLockUI = N15Enabled && N15Locked;
-    BOOL mediaShowing = showLockUI && self.mediaView.hasContent;
+    BOOL showLockUI =
+        N15Enabled && N15Locked;
 
-    // Once Notification History has been revealed, the classic clock/date
-    // should leave the screen instead of floating over the notification list.
+    BOOL mediaShowing =
+        showLockUI &&
+        self.mediaView.hasContent;
+
     BOOL hideClockForHistory =
-        showLockUI && N15NotificationHistoryRevealed && !mediaShowing;
+        showLockUI &&
+        N15NotificationHistoryRevealed &&
+        !mediaShowing;
 
     self.timeLabel.hidden =
-        !showLockUI || mediaShowing || hideClockForHistory;
+        !showLockUI ||
+        mediaShowing ||
+        hideClockForHistory;
 
     self.dateLabel.hidden =
-        !showLockUI || mediaShowing || hideClockForHistory;
+        !showLockUI ||
+        mediaShowing ||
+        hideClockForHistory;
 
     self.separatorView.hidden =
-        !showLockUI || mediaShowing || hideClockForHistory;
+        !showLockUI ||
+        mediaShowing ||
+        hideClockForHistory;
 
-    // Keep Slide to Unlock available even while notifications/history
-    // are visible. This is the only allowed UI-unlock path.
-    self.sliderHitView.hidden = !showLockUI;
+    self.sliderHitView.hidden =
+        !showLockUI;
 
-    self.mediaView.hidden = !mediaShowing;
-    [self.mediaView refreshNowPlaying];
+    self.mediaView.hidden =
+        !mediaShowing;
+
+    [self.mediaView
+        refreshNowPlaying];
 }
 
-- (void)handleSlide:(UIPanGestureRecognizer *)gesture {
+- (void)handleSlide:
+    (UIPanGestureRecognizer *)gesture {
+
     if (!N15Locked) {
         return;
     }
 
-    CGPoint translation = [gesture translationInView:self.sliderHitView];
+    CGPoint translation =
+        [gesture
+            translationInView:
+                self.sliderHitView];
 
     CGFloat availableDistance =
-        MAX(CGRectGetWidth(self.sliderHitView.bounds) - 90.0, 1.0);
+        MAX(
+            CGRectGetWidth(
+                self.sliderHitView.bounds
+            ) - 90.0,
+            1.0
+        );
 
-    if (gesture.state == UIGestureRecognizerStateChanged) {
+    if (gesture.state ==
+        UIGestureRecognizerStateChanged) {
+
         self.slideProgress =
-            MIN(MAX(translation.x / availableDistance, 0.0), 1.0);
+            MIN(
+                MAX(
+                    translation.x /
+                    availableDistance,
+                    0.0
+                ),
+                1.0
+            );
 
-        [self updateSlideTransformAnimated:NO];
+        [self
+            updateSlideTransformAnimated:NO];
+
         return;
     }
 
-    if (gesture.state == UIGestureRecognizerStateEnded ||
-        gesture.state == UIGestureRecognizerStateCancelled ||
-        gesture.state == UIGestureRecognizerStateFailed) {
+    if (gesture.state ==
+            UIGestureRecognizerStateEnded ||
+        gesture.state ==
+            UIGestureRecognizerStateCancelled ||
+        gesture.state ==
+            UIGestureRecognizerStateFailed) {
 
         BOOL completed =
             self.slideProgress >= 0.72 ||
-            [gesture velocityInView:self.sliderHitView].x > 900.0;
+            [gesture
+                velocityInView:
+                    self.sliderHitView].x
+                > 900.0;
 
         if (completed) {
             self.slideProgress = 1.0;
-            [self updateSlideTransformAnimated:YES];
+
+            [self
+                updateSlideTransformAnimated:YES];
 
             dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
+                dispatch_time(
+                    DISPATCH_TIME_NOW,
+                    (int64_t)(
+                        0.12 *
+                        NSEC_PER_SEC
+                    )
+                ),
                 dispatch_get_main_queue(),
                 ^{
                     N15RequestUnlock();
@@ -1121,58 +1602,92 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
         }
 
         self.slideProgress = 0.0;
-        [self updateSlideTransformAnimated:YES];
+
+        [self
+            updateSlideTransformAnimated:YES];
     }
 }
 
-- (void)updateSlideTransformAnimated:(BOOL)animated {
-    CGFloat availableDistance =
-        MAX(CGRectGetWidth(self.sliderHitView.bounds) - 90.0, 1.0);
+- (void)updateSlideTransformAnimated:
+    (BOOL)animated {
 
-    CGFloat x = availableDistance * self.slideProgress;
-    CGAffineTransform transform = CGAffineTransformMakeTranslation(x, 0);
+    CGFloat availableDistance =
+        MAX(
+            CGRectGetWidth(
+                self.sliderHitView.bounds
+            ) - 90.0,
+            1.0
+        );
+
+    CGFloat x =
+        availableDistance *
+        self.slideProgress;
+
+    CGAffineTransform transform =
+        CGAffineTransformMakeTranslation(
+            x,
+            0
+        );
 
     void (^changes)(void) = ^{
-        self.chevronLabel.transform = transform;
-        self.slideLabel.alpha = 1.0 - (self.slideProgress * 0.65);
+        self.chevronLabel.transform =
+            transform;
+
+        self.slideLabel.alpha =
+            1.0 -
+            (self.slideProgress *
+             0.65);
     };
 
     if (animated) {
-        [UIView animateWithDuration:0.22
-                              delay:0
-                            options:UIViewAnimationOptionCurveEaseOut |
-                                    UIViewAnimationOptionBeginFromCurrentState
-                         animations:changes
-                         completion:nil];
+        [UIView
+            animateWithDuration:0.22
+                          delay:0
+                        options:
+                UIViewAnimationOptionCurveEaseOut |
+                UIViewAnimationOptionBeginFromCurrentState
+                     animations:changes
+                     completion:nil];
     } else {
         changes();
     }
 }
 
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
-       shouldRecognizeSimultaneouslyWithGestureRecognizer:
-           (UIGestureRecognizer *)otherGestureRecognizer {
+- (BOOL)gestureRecognizer:
+    (UIGestureRecognizer *)gestureRecognizer
+shouldRecognizeSimultaneouslyWithGestureRecognizer:
+    (UIGestureRecognizer *)otherGestureRecognizer {
+
     return NO;
 }
 
 @end
 
 static void N15SetLocked(BOOL locked) {
-    BOOL changed = N15Locked != locked;
+    BOOL changed =
+        N15Locked != locked;
+
     N15Locked = locked;
 
     if (changed) {
-        N15NotificationHistoryRevealed = NO;
+        N15NotificationHistoryRevealed =
+            NO;
 
         if (locked) {
-            N15SlideUnlockAuthorized = NO;
+            N15SlideUnlockAuthorized =
+                NO;
         }
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [N15CurrentOverlay updateLockedState];
-        N15UpdateNotificationBackdrop();
-    });
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^{
+            [N15CurrentOverlay
+                updateLockedState];
+
+            N15UpdateNotificationBackdrop();
+        }
+    );
 }
 
 #pragma mark - Cover Sheet / Lock Screen
@@ -1183,6 +1698,7 @@ static void N15SetLocked(BOOL locked) {
     %orig;
 
     N15CurrentCoverController = self;
+
     N15EnsureCoverBlur(self);
     N15UpdateNotificationBackdrop();
 }
@@ -1191,66 +1707,92 @@ static void N15SetLocked(BOOL locked) {
     %orig;
 
     N15CurrentCoverController = self;
+
     N15EnsureCoverBlur(self);
 }
 
-- (void)viewWillAppear:(BOOL)animated {
+- (void)viewWillAppear:
+    (BOOL)animated {
+
     %orig;
 
-    // Touch ID can authenticate while the CoverSheet is still on screen.
-    // "authenticated" therefore is not the same thing as "UI unlocked".
-    N15SetLocked(N15SystemUILocked());
+    N15SetLocked(
+        N15SystemUILocked()
+    );
 }
 
-- (void)setAuthenticated:(BOOL)authenticated {
+- (void)setAuthenticated:
+    (BOOL)authenticated {
+
     %orig(authenticated);
 
-    // Keep the classic lock UI until SpringBoard has actually completed
-    // its UI unlock. This also prevents a Home-button press from making
-    // our overlay think the device has already left the Lock Screen.
-    N15SetLocked(N15SystemUILocked());
+    N15SetLocked(
+        N15SystemUILocked()
+    );
 }
 
 %end
 
-// Only Slide to Unlock may initiate/finish a UI unlock.
-// Touch ID authentication is still allowed; it simply remains on the
-// CoverSheet until the user completes our slide gesture.
 %hook SBLockScreenManager
 
 - (void)lockScreenViewControllerRequestsUnlock {
-    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+    if (N15Enabled &&
+        N15SystemUILocked() &&
+        !N15SlideUnlockAuthorized) {
+
         return;
     }
 
     %orig;
 }
 
-- (void)unlockUIFromSource:(int)source withOptions:(id)options {
-    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+- (void)unlockUIFromSource:
+    (int)source
+              withOptions:
+    (id)options {
+
+    if (N15Enabled &&
+        N15SystemUILocked() &&
+        !N15SlideUnlockAuthorized) {
+
         return;
     }
 
     %orig(source, options);
 }
 
-- (BOOL)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
-    if (N15Enabled && N15SystemUILocked() && !N15SlideUnlockAuthorized) {
+- (BOOL)_finishUIUnlockFromSource:
+    (int)source
+                      withOptions:
+    (id)options {
+
+    if (N15Enabled &&
+        N15SystemUILocked() &&
+        !N15SlideUnlockAuthorized) {
+
         return NO;
     }
 
-    BOOL result = %orig(source, options);
+    BOOL result =
+        %orig(source, options);
 
     if (N15Enabled && result) {
         N15SetLocked(NO);
-        N15SlideUnlockAuthorized = NO;
+
+        N15SlideUnlockAuthorized =
+            NO;
     }
 
     return result;
 }
 
-- (void)lockUIFromSource:(int)source withOptions:(id)options {
-    N15SlideUnlockAuthorized = NO;
+- (void)lockUIFromSource:
+    (int)source
+            withOptions:
+    (id)options {
+
+    N15SlideUnlockAuthorized =
+        NO;
 
     %orig(source, options);
 
@@ -1266,7 +1808,8 @@ static void N15SetLocked(BOOL locked) {
 - (void)layoutSubviews {
     %orig;
 
-    N15LockOverlayView *overlay = N15GetOverlay(self);
+    N15LockOverlayView *overlay =
+        N15GetOverlay(self);
 
     if (!N15Enabled) {
         overlay.hidden = YES;
@@ -1274,12 +1817,16 @@ static void N15SetLocked(BOOL locked) {
     }
 
     if (!overlay) {
-        overlay = [[N15LockOverlayView alloc] initWithFrame:self.bounds];
+        overlay =
+            [[N15LockOverlayView alloc]
+                initWithFrame:self.bounds];
+
         overlay.autoresizingMask =
             UIViewAutoresizingFlexibleWidth |
             UIViewAutoresizingFlexibleHeight;
 
         N15SetOverlay(self, overlay);
+
         [self addSubview:overlay];
     }
 
@@ -1289,6 +1836,7 @@ static void N15SetLocked(BOOL locked) {
     N15CurrentOverlay = overlay;
 
     [self bringSubviewToFront:overlay];
+
     [overlay updateLockedState];
 }
 
@@ -1309,10 +1857,14 @@ static void N15SetLocked(BOOL locked) {
 
 %hook CSFixedFooterViewController
 
-- (void)viewDidAppear:(BOOL)animated {
+- (void)viewDidAppear:
+    (BOOL)animated {
+
     %orig;
 
-    if (N15Enabled && N15Locked) {
+    if (N15Enabled &&
+        N15Locked) {
+
         self.view.hidden = YES;
         self.view.alpha = 0.0;
     }
@@ -1343,9 +1895,14 @@ static void N15SetLocked(BOOL locked) {
     }
 
     @try {
-        UIView *quickActions = [self valueForKey:@"_quickActionsView"];
+        UIView *quickActions =
+            [self
+                valueForKey:
+                    @"_quickActionsView"];
 
-        if ([quickActions isKindOfClass:UIView.class]) {
+        if ([quickActions
+            isKindOfClass:UIView.class]) {
+
             quickActions.hidden = YES;
             quickActions.alpha = 0.0;
         }
@@ -1366,33 +1923,58 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    // Only alter platter views that belong to a notification ShortLook.
-    UIView *ancestor = self.superview;
-    BOOL belongsToNotification = NO;
+    UIView *ancestor =
+        self.superview;
 
-    while (ancestor && !belongsToNotification) {
-        if ([ancestor isKindOfClass:NSClassFromString(@"NCNotificationShortLookView")]) {
-            belongsToNotification = YES;
+    BOOL belongsToNotification =
+        NO;
+
+    while (ancestor &&
+           !belongsToNotification) {
+
+        if ([ancestor
+            isKindOfClass:
+                NSClassFromString(
+                    @"NCNotificationShortLookView"
+                )]) {
+
+            belongsToNotification =
+                YES;
+
             break;
         }
 
-        ancestor = ancestor.superview;
+        ancestor =
+            ancestor.superview;
     }
 
     if (!belongsToNotification) {
         return;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    self.layer.cornerRadius = 0.0;
+    self.backgroundColor =
+        UIColor.clearColor;
+
+    self.layer.cornerRadius =
+        0.0;
+
     self.layer.mask = nil;
 
-    for (UIView *subview in self.subviews) {
-        if (N15IsNotificationBackgroundMaterial(subview)) {
+    for (UIView *subview
+         in self.subviews) {
+
+        if (N15IsNotificationBackgroundMaterial(
+            subview
+        )) {
             subview.hidden = YES;
             subview.alpha = 0.0;
-            subview.backgroundColor = UIColor.clearColor;
-            subview.layer.cornerRadius = 0.0;
+
+            subview.backgroundColor =
+                UIColor.clearColor;
+
+            subview.layer.cornerRadius =
+                0.0;
+
             subview.layer.mask = nil;
         }
     }
@@ -1405,23 +1987,38 @@ static void N15SetLocked(BOOL locked) {
 - (void)_configureBackgroundViewIfNecessary {
     %orig;
 
-    if (!N15Enabled || !self.window) {
+    if (!N15Enabled ||
+        !self.window) {
+
         return;
     }
 
-    BOOL isBanner = N15IsBannerShortLook(self);
-    N15RemoveNotificationPlatter(self, isBanner);
+    BOOL isBanner =
+        N15IsBannerShortLook(self);
+
+    N15RemoveNotificationPlatter(
+        self,
+        isBanner
+    );
 }
 
-- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+- (void)traitCollectionDidChange:
+    (UITraitCollection *)
+        previousTraitCollection {
+
     %orig(previousTraitCollection);
 
     if (!N15Enabled) {
         return;
     }
 
-    BOOL isBanner = N15IsBannerShortLook(self);
-    N15RemoveNotificationPlatter(self, isBanner);
+    BOOL isBanner =
+        N15IsBannerShortLook(self);
+
+    N15RemoveNotificationPlatter(
+        self,
+        isBanner
+    );
 }
 
 - (void)layoutSubviews {
@@ -1431,7 +2028,8 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    BOOL isBanner = N15IsBannerShortLook(self);
+    BOOL isBanner =
+        N15IsBannerShortLook(self);
 
     self.layer.cornerRadius = 0.0;
     self.layer.mask = nil;
@@ -1439,64 +2037,95 @@ static void N15SetLocked(BOOL locked) {
     self.clipsToBounds = NO;
 
     if (!isBanner) {
-        // NineLS keeps Apple's actual notification content, but removes
-        // the individual platter. On iOS 15 this additionally needs the
-        // PLPlatterView background/shadow state disabled.
-        N15RemoveNotificationPlatter(self, NO);
-        N15StyleNotificationText(self);
+        N15RemoveNotificationPlatter(
+            self,
+            NO
+        );
 
-        UIView *separatorView = N15GetSeparatorView(self);
+        N15StyleNotificationText(
+            self
+        );
+
+        UIView *separatorView =
+            N15GetSeparatorView(self);
 
         if (!separatorView) {
-            separatorView = [[UIView alloc] init];
-            separatorView.backgroundColor =
-                [UIColor colorWithWhite:1.0 alpha:0.32];
-            separatorView.userInteractionEnabled = NO;
+            separatorView =
+                [[UIView alloc] init];
 
-            N15SetSeparatorView(self, separatorView);
-            [self addSubview:separatorView];
+            separatorView.backgroundColor =
+                [UIColor
+                    colorWithWhite:1.0
+                             alpha:0.32];
+
+            separatorView.userInteractionEnabled =
+                NO;
+
+            N15SetSeparatorView(
+                self,
+                separatorView
+            );
+
+            [self addSubview:
+                separatorView];
         }
 
-        CGFloat onePixel = 1.0 / UIScreen.mainScreen.scale;
+        CGFloat onePixel =
+            1.0 /
+            UIScreen.mainScreen.scale;
 
         separatorView.frame =
             CGRectMake(
                 0.0,
-                MAX(CGRectGetHeight(self.bounds) - onePixel, 0.0),
-                CGRectGetWidth(self.bounds),
+                MAX(
+                    CGRectGetHeight(
+                        self.bounds
+                    ) - onePixel,
+                    0.0
+                ),
+                CGRectGetWidth(
+                    self.bounds
+                ),
                 onePixel
             );
 
-        [self bringSubviewToFront:separatorView];
+        [self
+            bringSubviewToFront:
+                separatorView];
 
-        if (self.window && N15NotificationCount == 0) {
+        if (self.window &&
+            N15NotificationCount == 0) {
+
             N15SetNotificationCount(1);
         }
     } else {
-        // Do not change notification behavior; only remove the modern
-        // exaggerated rounding from banners.
-        self.layer.cornerRadius = 0.0;
+        self.layer.cornerRadius =
+            0.0;
 
         UIView *background = nil;
 
         @try {
-            background = self.backgroundView;
+            background =
+                self.backgroundView;
         } @catch (__unused NSException *exception) {
             background = nil;
         }
 
-        if ([background isKindOfClass:UIView.class]) {
-            background.layer.cornerRadius = 0.0;
+        if ([background
+            isKindOfClass:UIView.class]) {
+
+            background.layer.cornerRadius =
+                0.0;
         }
 
-        N15StyleNotificationText(self);
+        N15StyleNotificationText(
+            self
+        );
     }
 }
 
 %end
 
-// Clear the collection-cell/wrapper masks that otherwise keep the iOS 15
-// rounded-card silhouette even when the ShortLook platter itself is hidden.
 %hook NCNotificationListCell
 
 - (void)layoutSubviews {
@@ -1506,17 +2135,31 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    self.contentView.backgroundColor = UIColor.clearColor;
-    self.contentView.frame = self.bounds;
+    self.backgroundColor =
+        UIColor.clearColor;
 
-    self.layer.cornerRadius = 0.0;
+    self.contentView.backgroundColor =
+        UIColor.clearColor;
+
+    self.contentView.frame =
+        self.bounds;
+
+    self.layer.cornerRadius =
+        0.0;
+
     self.layer.mask = nil;
-    self.layer.masksToBounds = NO;
 
-    self.contentView.layer.cornerRadius = 0.0;
-    self.contentView.layer.mask = nil;
-    self.contentView.layer.masksToBounds = NO;
+    self.layer.masksToBounds =
+        NO;
+
+    self.contentView.layer.cornerRadius =
+        0.0;
+
+    self.contentView.layer.mask =
+        nil;
+
+    self.contentView.layer.masksToBounds =
+        NO;
 }
 
 %end
@@ -1530,10 +2173,16 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    self.layer.cornerRadius = 0.0;
+    self.backgroundColor =
+        UIColor.clearColor;
+
+    self.layer.cornerRadius =
+        0.0;
+
     self.layer.mask = nil;
-    self.layer.masksToBounds = NO;
+
+    self.layer.masksToBounds =
+        NO;
 }
 
 %end
@@ -1547,58 +2196,87 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    self.layer.cornerRadius = 0.0;
+    self.backgroundColor =
+        UIColor.clearColor;
+
+    self.layer.cornerRadius =
+        0.0;
+
     self.layer.mask = nil;
 
-    // This is the actual iOS 15 content class on 15.8.8.
-    // Keep Apple's content/interaction, only tune typography toward iOS 9.
-    N15StyleNotificationText(self);
+    N15StyleNotificationText(
+        self
+    );
 
-    for (UIView *subview in self.subviews) {
-        if ([subview isKindOfClass:UILabel.class]) {
-            UILabel *label = (UILabel *)subview;
-            label.textColor = [UIColor colorWithWhite:1.0 alpha:0.97];
+    for (UIView *subview
+         in self.subviews) {
+
+        if ([subview
+            isKindOfClass:
+                UILabel.class]) {
+
+            UILabel *label =
+                (UILabel *)subview;
+
+            label.textColor =
+                [UIColor
+                    colorWithWhite:1.0
+                             alpha:0.97];
         }
 
-        for (UIView *child in subview.subviews) {
-            if ([child isKindOfClass:UILabel.class]) {
-                UILabel *label = (UILabel *)child;
-                label.textColor = [UIColor colorWithWhite:1.0 alpha:0.97];
+        for (UIView *child
+             in subview.subviews) {
 
-                if (label.font.pointSize > 17.0) {
-                    label.font = [UIFont systemFontOfSize:16.0
-                                                  weight:UIFontWeightRegular];
+            if ([child
+                isKindOfClass:
+                    UILabel.class]) {
+
+                UILabel *label =
+                    (UILabel *)child;
+
+                label.textColor =
+                    [UIColor
+                        colorWithWhite:1.0
+                                 alpha:0.97];
+
+                if (label.font.pointSize >
+                    17.0) {
+
+                    label.font =
+                        [UIFont
+                            systemFontOfSize:16.0
+                                     weight:
+                                UIFontWeightRegular];
                 }
             }
         }
     }
-}
 
-%end
+    if (self.superview) {
+        CGFloat parentWidth =
+            CGRectGetWidth(
+                self.superview.bounds
+            );
 
-%hook NCNotificationSeamlessContentView
+        CGRect frame =
+            self.frame;
 
-- (void)layoutSubviews {
-    %orig;
+        if (fabs(frame.origin.x) >
+                0.5 ||
+            fabs(
+                frame.size.width -
+                parentWidth
+            ) > 0.5) {
 
-    if (!N15Enabled || !self.superview) {
-        return;
-    }
+            frame.origin.x =
+                0.0;
 
-    CGFloat parentWidth = CGRectGetWidth(self.superview.bounds);
+            frame.size.width =
+                parentWidth;
 
-    // Fill the platter content width. The app icon keeps Apple's internal
-    // ~10pt padding, giving an iOS 9-like edge distance once the outer list
-    // margin is reduced to 4pt.
-    CGRect frame = self.frame;
-
-    if (fabs(frame.origin.x) > 0.5 ||
-        fabs(frame.size.width - parentWidth) > 0.5) {
-
-        frame.origin.x = 0.0;
-        frame.size.width = parentWidth;
-        self.frame = frame;
+            self.frame =
+                frame;
+        }
     }
 }
 
@@ -1613,46 +2291,109 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    N15StyleNotificationText(self);
+    self.backgroundColor =
+        UIColor.clearColor;
+
+    N15StyleNotificationText(
+        self
+    );
 
     UILabel *primary = nil;
     UILabel *secondary = nil;
     UILabel *subtitle = nil;
 
     @try {
-        primary = self.primaryLabel;
-        secondary = self.secondaryLabel;
-        subtitle = self.primarySubtitleLabel;
+        primary =
+            self.primaryLabel;
+
+        secondary =
+            self.secondaryLabel;
+
+        subtitle =
+            self.primarySubtitleLabel;
     } @catch (__unused NSException *exception) {
     }
 
-    if ([primary isKindOfClass:UILabel.class]) {
-        primary.layer.filters = nil;
-        primary.textColor = [UIColor colorWithWhite:1.0 alpha:0.98];
-        primary.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    if ([primary
+        isKindOfClass:UILabel.class]) {
+
+        primary.layer.filters =
+            nil;
+
+        primary.textColor =
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.98];
+
+        primary.font =
+            [UIFont
+                systemFontOfSize:16.0
+                         weight:
+                    UIFontWeightSemibold];
     }
 
-    if ([subtitle isKindOfClass:UILabel.class]) {
-        subtitle.layer.filters = nil;
-        subtitle.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
-        subtitle.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
+    if ([subtitle
+        isKindOfClass:UILabel.class]) {
+
+        subtitle.layer.filters =
+            nil;
+
+        subtitle.textColor =
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.96];
+
+        subtitle.font =
+            [UIFont
+                systemFontOfSize:16.0
+                         weight:
+                    UIFontWeightRegular];
     }
 
-    if ([secondary isKindOfClass:UILabel.class]) {
-        secondary.layer.filters = nil;
-        secondary.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
-        secondary.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
+    if ([secondary
+        isKindOfClass:UILabel.class]) {
+
+        secondary.layer.filters =
+            nil;
+
+        secondary.textColor =
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.96];
+
+        secondary.font =
+            [UIFont
+                systemFontOfSize:16.0
+                         weight:
+                    UIFontWeightRegular];
     }
 
-    UITextView *secondaryTextView = N15ObjectIvar(self, "_secondaryTextView");
-    if ([secondaryTextView isKindOfClass:UITextView.class]) {
-        secondaryTextView.layer.filters = nil;
+    UITextView *secondaryTextView =
+        N15ObjectIvar(
+            self,
+            "_secondaryTextView"
+        );
+
+    if ([secondaryTextView
+        isKindOfClass:
+            UITextView.class]) {
+
+        secondaryTextView.layer.filters =
+            nil;
+
         secondaryTextView.textColor =
-            [UIColor colorWithWhite:1.0 alpha:0.96];
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.96];
+
         secondaryTextView.font =
-            [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
-        secondaryTextView.backgroundColor = UIColor.clearColor;
+            [UIFont
+                systemFontOfSize:16.0
+                         weight:
+                    UIFontWeightRegular];
+
+        secondaryTextView.backgroundColor =
+            UIColor.clearColor;
     }
 }
 
@@ -1667,32 +2408,89 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    N15StyleNotificationText(self);
+    N15StyleNotificationText(
+        self
+    );
 
-    UILabel *titleLabel = N15ObjectIvar(self, "_titleLabel");
-    UILabel *dateLabel = N15ObjectIvar(self, "_dateLabel");
-    UIImageView *iconView = N15ObjectIvar(self, "_iconView");
+    UILabel *titleLabel =
+        N15ObjectIvar(
+            self,
+            "_titleLabel"
+        );
 
-    if ([titleLabel isKindOfClass:UILabel.class]) {
-        titleLabel.layer.filters = nil;
-        titleLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.90];
+    UILabel *dateLabel =
+        N15ObjectIvar(
+            self,
+            "_dateLabel"
+        );
+
+    UIImageView *iconView =
+        N15ObjectIvar(
+            self,
+            "_iconView"
+        );
+
+    if ([titleLabel
+        isKindOfClass:
+            UILabel.class]) {
+
+        titleLabel.layer.filters =
+            nil;
+
+        titleLabel.textColor =
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.90];
+
         titleLabel.font =
-            [UIFont systemFontOfSize:14.0 weight:UIFontWeightRegular];
+            [UIFont
+                systemFontOfSize:14.0
+                         weight:
+                    UIFontWeightRegular];
     }
 
-    if ([dateLabel isKindOfClass:UILabel.class]) {
-        dateLabel.layer.filters = nil;
-        dateLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.82];
+    if ([dateLabel
+        isKindOfClass:
+            UILabel.class]) {
+
+        dateLabel.layer.filters =
+            nil;
+
+        dateLabel.textColor =
+            [UIColor
+                colorWithWhite:1.0
+                         alpha:0.82];
+
         dateLabel.font =
-            [UIFont systemFontOfSize:14.0 weight:UIFontWeightRegular];
+            [UIFont
+                systemFontOfSize:14.0
+                         weight:
+                    UIFontWeightRegular];
     }
 
-    if ([iconView isKindOfClass:UIImageView.class]) {
-        CGPoint center = iconView.center;
-        iconView.bounds = CGRectMake(0, 0, 26.0, 26.0);
-        iconView.center = center;
-        iconView.layer.cornerRadius = 5.0;
-        iconView.clipsToBounds = YES;
+    if ([iconView
+        isKindOfClass:
+            UIImageView.class]) {
+
+        CGPoint center =
+            iconView.center;
+
+        iconView.bounds =
+            CGRectMake(
+                0,
+                0,
+                26.0,
+                26.0
+            );
+
+        iconView.center =
+            center;
+
+        iconView.layer.cornerRadius =
+            5.0;
+
+        iconView.clipsToBounds =
+            YES;
     }
 }
 
@@ -1708,9 +2506,14 @@ static void N15SetLocked(BOOL locked) {
     }
 
     @try {
-        self.backgroundView.alpha = 0.0;
-        self.backgroundView.hidden = YES;
-        self.backgroundView.layer.cornerRadius = 0.0;
+        self.backgroundView.alpha =
+            0.0;
+
+        self.backgroundView.hidden =
+            YES;
+
+        self.backgroundView.layer.cornerRadius =
+            0.0;
     } @catch (__unused NSException *exception) {
     }
 }
@@ -1723,25 +2526,30 @@ static void N15SetLocked(BOOL locked) {
     }
 
     @try {
-        self.backgroundView.alpha = 0.0;
-        self.backgroundView.hidden = YES;
-        self.backgroundView.layer.cornerRadius = 0.0;
+        self.backgroundView.alpha =
+            0.0;
+
+        self.backgroundView.hidden =
+            YES;
+
+        self.backgroundView.layer.cornerRadius =
+            0.0;
     } @catch (__unused NSException *exception) {
     }
 
-    N15StyleNotificationText(self);
+    N15StyleNotificationText(
+        self
+    );
 }
 
 %end
 
-// Match NineLS' no-coalescing approach so "Show Less"/group cards disappear.
 %hook NCNotificationListSectionHeaderView
 
 - (void)layoutSubviews {
     %orig;
 
     if (N15Enabled) {
-        // Removes the modern "Older Notifications"/group header visuals.
         self.alpha = 0.0;
         self.hidden = YES;
     }
@@ -1804,10 +2612,14 @@ static void N15SetLocked(BOOL locked) {
 %hook NCNotificationGroupList
 
 - (BOOL)isGrouped {
-    return N15Enabled ? NO : %orig;
+    return N15Enabled
+        ? NO
+        : %orig;
 }
 
-- (void)setGrouped:(BOOL)grouped {
+- (void)setGrouped:
+    (BOOL)grouped {
+
     if (N15Enabled) {
         %orig(NO);
         return;
@@ -1816,12 +2628,20 @@ static void N15SetLocked(BOOL locked) {
     %orig(grouped);
 }
 
-- (BOOL)notificationListViewIsGroup:(id)view {
-    return N15Enabled ? NO : %orig(view);
+- (BOOL)notificationListViewIsGroup:
+    (id)view {
+
+    return N15Enabled
+        ? NO
+        : %orig(view);
 }
 
-- (BOOL)_isContentRevealedForNotificationRequest:(id)request {
-    return N15Enabled ? YES : %orig(request);
+- (BOOL)_isContentRevealedForNotificationRequest:
+    (id)request {
+
+    return N15Enabled
+        ? YES
+        : %orig(request);
 }
 
 %end
@@ -1835,117 +2655,187 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
+    CGFloat screenWidth =
+        UIScreen.mainScreen.bounds.size.width;
+
+    CGFloat screenHeight =
+        UIScreen.mainScreen.bounds.size.height;
 
     BOOL isRootList =
-        fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
-        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
+        fabs(
+            CGRectGetWidth(self.bounds) -
+            screenWidth
+        ) < 1.0 &&
+        CGRectGetHeight(self.bounds) >=
+            screenHeight * 0.85;
 
     if (isRootList) {
         if (N15Locked) {
-            // Diagnostic values on this device:
-            // rest ≈ -201pt, Notification History ≈ +151pt.
-            // Hide the clock as soon as the list is deliberately pulled
-            // into the clock region; restore it when returning to rest.
             BOOL historyOccupiesClockArea =
-                self.contentOffset.y > -120.0;
+                self.contentOffset.y >
+                -120.0;
 
             N15SetNotificationHistoryRevealed(
                 historyOccupiesClockArea
             );
         } else {
-            // Notification Center should not reserve the old Lock Screen
-            // date/time area.
-            UIEdgeInsets inset = self.contentInset;
+            UIEdgeInsets inset =
+                self.contentInset;
 
-            if (fabs(inset.top) > 0.5) {
-                CGPoint offset = self.contentOffset;
+            if (fabs(inset.top) >
+                0.5) {
+
+                CGPoint offset =
+                    self.contentOffset;
 
                 inset.top = 0.0;
-                self.contentInset = inset;
+
+                self.contentInset =
+                    inset;
 
                 UIEdgeInsets indicatorInsets =
                     self.verticalScrollIndicatorInsets;
 
-                indicatorInsets.top = 0.0;
+                indicatorInsets.top =
+                    0.0;
 
                 self.verticalScrollIndicatorInsets =
                     indicatorInsets;
 
                 if (offset.y < 0.0) {
                     offset.y = 0.0;
-                    [self setContentOffset:offset animated:NO];
+
+                    [self
+                        setContentOffset:offset
+                                animated:NO];
                 }
             }
         }
     }
 
-    // iOS 15.8.8 lays the master notification list out at x=10,
-    // width=screen-20. Expand it to a small 4pt edge margin. Deeper
-    // NCNotificationListViews then fill their new parent width.
-    if ([self.superview isKindOfClass:NSClassFromString(@"NCNotificationListView")]) {
+    if ([self.superview
+        isKindOfClass:
+            NSClassFromString(
+                @"NCNotificationListView"
+            )]) {
+
         NCNotificationListView *parent =
-            (NCNotificationListView *)self.superview;
+            (NCNotificationListView *)
+            self.superview;
 
-        CGFloat parentWidth = CGRectGetWidth(parent.bounds);
+        CGFloat parentWidth =
+            CGRectGetWidth(
+                parent.bounds
+            );
+
         BOOL parentIsScreenWidth =
-            fabs(parentWidth - screenWidth) < 1.0;
+            fabs(
+                parentWidth -
+                screenWidth
+            ) < 1.0;
 
-        CGFloat desiredX = parentIsScreenWidth ? 4.0 : 0.0;
+        CGFloat desiredX =
+            parentIsScreenWidth
+            ? 4.0
+            : 0.0;
+
         CGFloat desiredWidth =
             parentIsScreenWidth
-            ? MAX(parentWidth - 8.0, 0.0)
+            ? MAX(
+                parentWidth - 8.0,
+                0.0
+              )
             : parentWidth;
 
-        CGRect frame = self.frame;
+        CGRect frame =
+            self.frame;
 
-        if (fabs(frame.origin.x - desiredX) > 0.5 ||
-            fabs(frame.size.width - desiredWidth) > 0.5) {
+        if (fabs(
+                frame.origin.x -
+                desiredX
+            ) > 0.5 ||
+            fabs(
+                frame.size.width -
+                desiredWidth
+            ) > 0.5) {
 
-            frame.origin.x = desiredX;
-            frame.size.width = desiredWidth;
-            self.frame = frame;
+            frame.origin.x =
+                desiredX;
 
-            CGSize contentSize = self.contentSize;
-            contentSize.width = desiredWidth;
-            self.contentSize = contentSize;
+            frame.size.width =
+                desiredWidth;
+
+            self.frame =
+                frame;
+
+            CGSize contentSize =
+                self.contentSize;
+
+            contentSize.width =
+                desiredWidth;
+
+            self.contentSize =
+                contentSize;
 
             [self setNeedsLayout];
         }
     }
 }
 
-- (void)setContentOffset:(CGPoint)contentOffset {
+- (void)setContentOffset:
+    (CGPoint)contentOffset {
+
     %orig(contentOffset);
 
-    if (!N15Enabled || !N15Locked) {
+    if (!N15Enabled ||
+        !N15Locked) {
+
         return;
     }
 
-    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
+    CGFloat screenWidth =
+        UIScreen.mainScreen.bounds.size.width;
+
+    CGFloat screenHeight =
+        UIScreen.mainScreen.bounds.size.height;
 
     BOOL isRootList =
-        fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
-        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
+        fabs(
+            CGRectGetWidth(self.bounds) -
+            screenWidth
+        ) < 1.0 &&
+        CGRectGetHeight(self.bounds) >=
+            screenHeight * 0.85;
 
     if (isRootList) {
         N15SetNotificationHistoryRevealed(
-            contentOffset.y > -120.0
+            contentOffset.y >
+            -120.0
         );
     }
 }
 
-- (void)setContentInset:(UIEdgeInsets)contentInset {
-    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenHeight = UIScreen.mainScreen.bounds.size.height;
+- (void)setContentInset:
+    (UIEdgeInsets)contentInset {
+
+    CGFloat screenWidth =
+        UIScreen.mainScreen.bounds.size.width;
+
+    CGFloat screenHeight =
+        UIScreen.mainScreen.bounds.size.height;
 
     BOOL isRootList =
-        fabs(CGRectGetWidth(self.bounds) - screenWidth) < 1.0 &&
-        CGRectGetHeight(self.bounds) >= screenHeight * 0.85;
+        fabs(
+            CGRectGetWidth(self.bounds) -
+            screenWidth
+        ) < 1.0 &&
+        CGRectGetHeight(self.bounds) >=
+            screenHeight * 0.85;
 
-    if (N15Enabled && !N15Locked && isRootList) {
+    if (N15Enabled &&
+        !N15Locked &&
+        isRootList) {
+
         contentInset.top = 0.0;
     }
 
@@ -1953,19 +2843,27 @@ static void N15SetLocked(BOOL locked) {
 }
 
 - (double)_headerViewHeight {
-    return N15Enabled ? 0.0 : %orig;
+    return N15Enabled
+        ? 0.0
+        : %orig;
 }
 
 - (double)_footerViewHeight {
-    return N15Enabled ? 0.0 : %orig;
+    return N15Enabled
+        ? 0.0
+        : %orig;
 }
 
 - (BOOL)_isGrouping {
-    return N15Enabled ? NO : %orig;
+    return N15Enabled
+        ? NO
+        : %orig;
 }
 
 - (BOOL)isPerformingGroupingAnimation {
-    return N15Enabled ? NO : %orig;
+    return N15Enabled
+        ? NO
+        : %orig;
 }
 
 %end
@@ -1973,10 +2871,14 @@ static void N15SetLocked(BOOL locked) {
 %hook NCNotificationListViewController
 
 - (BOOL)isGrouped {
-    return N15Enabled ? NO : %orig;
+    return N15Enabled
+        ? NO
+        : %orig;
 }
 
-- (void)setGrouped:(BOOL)grouped {
+- (void)setGrouped:
+    (BOOL)grouped {
+
     if (N15Enabled) {
         %orig(NO);
         return;
@@ -1985,24 +2887,29 @@ static void N15SetLocked(BOOL locked) {
     %orig(grouped);
 }
 
-- (BOOL)notificationListViewIsGroup:(id)view {
-    return N15Enabled ? NO : %orig(view);
+- (BOOL)notificationListViewIsGroup:
+    (id)view {
+
+    return N15Enabled
+        ? NO
+        : %orig(view);
 }
 
-- (BOOL)_isContentRevealedForNotificationRequest:(id)request {
-    return N15Enabled ? YES : %orig(request);
+- (BOOL)_isContentRevealedForNotificationRequest:
+    (id)request {
+
+    return N15Enabled
+        ? YES
+        : %orig(request);
 }
 
 %end
 
-// Eliminate the modern gap between rounded cards.
-
-// iOS 15 adds horizontal margins around the modern notification cards.
-// Nine/iOS 9 uses a flat list, so keep only the vertical margins.
 %hook NCNotificationCombinedListViewController
 
 - (UIEdgeInsets)insetMargins {
-    UIEdgeInsets inset = %orig;
+    UIEdgeInsets inset =
+        %orig;
 
     if (N15Enabled) {
         inset.left = 0.0;
@@ -2024,12 +2931,18 @@ static void N15SetLocked(BOOL locked) {
     }
 
     @try {
-        [self setValue:@0.0 forKey:@"itemSpacing"];
+        [self
+            setValue:@0.0
+              forKey:@"itemSpacing"];
 
         NSValue *zeroInsets =
-            [NSValue valueWithUIEdgeInsets:UIEdgeInsetsZero];
+            [NSValue
+                valueWithUIEdgeInsets:
+                    UIEdgeInsetsZero];
 
-        [self setValue:zeroInsets forKey:@"insetMargins"];
+        [self
+            setValue:zeroInsets
+              forKey:@"insetMargins"];
     } @catch (__unused NSException *exception) {
     }
 }
@@ -2042,18 +2955,25 @@ static void N15SetLocked(BOOL locked) {
     }
 
     @try {
-        [self setValue:@0.0 forKey:@"itemSpacing"];
+        [self
+            setValue:@0.0
+              forKey:@"itemSpacing"];
 
         NSValue *zeroInsets =
-            [NSValue valueWithUIEdgeInsets:UIEdgeInsetsZero];
+            [NSValue
+                valueWithUIEdgeInsets:
+                    UIEdgeInsetsZero];
 
-        [self setValue:zeroInsets forKey:@"insetMargins"];
+        [self
+            setValue:zeroInsets
+              forKey:@"insetMargins"];
     } @catch (__unused NSException *exception) {
     }
 }
 
 - (UIEdgeInsets)insetMargins {
-    UIEdgeInsets inset = %orig;
+    UIEdgeInsets inset =
+        %orig;
 
     if (N15Enabled) {
         inset.left = 0.0;
@@ -2063,27 +2983,34 @@ static void N15SetLocked(BOOL locked) {
     return inset;
 }
 
-- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
+- (void)revealNotificationHistory:
+    (BOOL)revealed
+                         animated:
+    (BOOL)animated {
+
     %orig(revealed, animated);
 
-    if (N15Enabled && N15Locked && revealed) {
-        // Immediate hide at reveal completion. The root list's real
-        // contentOffset below remains the source of truth afterwards.
-        N15SetNotificationHistoryRevealed(YES);
+    if (N15Enabled &&
+        N15Locked &&
+        revealed) {
+
+        N15SetNotificationHistoryRevealed(
+            YES
+        );
     }
 }
 
 %end
 
-// The CoverSheet reserves lock-screen date/clock space by default. When the
-// authenticated CoverSheet is acting as Notification Center, remove that
-// unused top inset so the list begins below the status bar instead.
 %hook CSCombinedListViewController
 
 - (UIEdgeInsets)_listViewDefaultContentInsets {
-    UIEdgeInsets inset = %orig;
+    UIEdgeInsets inset =
+        %orig;
 
-    if (N15Enabled && !N15Locked) {
+    if (N15Enabled &&
+        !N15Locked) {
+
         inset.top = 0.0;
     }
 
@@ -2092,24 +3019,37 @@ static void N15SetLocked(BOOL locked) {
 
 %end
 
-// Track the actual "older notifications/history" state on the lock screen.
-// This lets the custom clock disappear exactly when the reveal gesture
-// completes, instead of merely checking whether notifications exist.
 %hook NCNotificationRootList
 
-- (void)setNotificationHistoryRevealed:(BOOL)revealed {
+- (void)setNotificationHistoryRevealed:
+    (BOOL)revealed {
+
     %orig(revealed);
 
-    if (N15Enabled && N15Locked && revealed) {
-        N15SetNotificationHistoryRevealed(YES);
+    if (N15Enabled &&
+        N15Locked &&
+        revealed) {
+
+        N15SetNotificationHistoryRevealed(
+            YES
+        );
     }
 }
 
-- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
+- (void)revealNotificationHistory:
+    (BOOL)revealed
+                         animated:
+    (BOOL)animated {
+
     %orig(revealed, animated);
 
-    if (N15Enabled && N15Locked && revealed) {
-        N15SetNotificationHistoryRevealed(YES);
+    if (N15Enabled &&
+        N15Locked &&
+        revealed) {
+
+        N15SetNotificationHistoryRevealed(
+            YES
+        );
     }
 }
 
@@ -2124,25 +3064,34 @@ static void N15SetLocked(BOOL locked) {
         return;
     }
 
-    self.minimumLineSpacing = 0.0;
-    self.minimumInteritemSpacing = 0.0;
+    self.minimumLineSpacing =
+        0.0;
 
-    UIEdgeInsets inset = self.sectionInset;
+    self.minimumInteritemSpacing =
+        0.0;
+
+    UIEdgeInsets inset =
+        self.sectionInset;
+
     inset.left = 0.0;
     inset.right = 0.0;
-    self.sectionInset = inset;
+
+    self.sectionInset =
+        inset;
 }
 
 %end
 
-// NineLS uses MasterList's count to show a single blur behind notifications.
 %hook NCNotificationMasterList
 
 - (unsigned long long)notificationCount {
-    unsigned long long count = %orig;
+    unsigned long long count =
+        %orig;
 
     if (N15Enabled) {
-        N15SetNotificationCount((NSUInteger)count);
+        N15SetNotificationCount(
+            (NSUInteger)count
+        );
     }
 
     return count;
@@ -2154,7 +3103,9 @@ static void N15SetLocked(BOOL locked) {
 
 %hook MRUNowPlayingViewController
 
-- (void)viewDidAppear:(BOOL)animated {
+- (void)viewDidAppear:
+    (BOOL)animated {
+
     %orig;
 
     if (!N15Enabled) {
@@ -2164,17 +3115,23 @@ static void N15SetLocked(BOOL locked) {
     NSInteger context = 0;
 
     @try {
-        context = self.context;
+        context =
+            self.context;
     } @catch (__unused NSException *exception) {
         context = 0;
     }
 
-    // Hide the stock player only on the actual locked CoverSheet.
-    // Once authenticated / in Notification Center, restore the native player.
-    BOOL shouldHide = N15Locked && context == 2;
+    BOOL shouldHide =
+        N15Locked &&
+        context == 2;
 
-    self.view.hidden = shouldHide;
-    self.view.alpha = shouldHide ? 0.0 : 1.0;
+    self.view.hidden =
+        shouldHide;
+
+    self.view.alpha =
+        shouldHide
+        ? 0.0
+        : 1.0;
 }
 
 - (void)viewWillLayoutSubviews {
@@ -2187,15 +3144,23 @@ static void N15SetLocked(BOOL locked) {
     NSInteger context = 0;
 
     @try {
-        context = self.context;
+        context =
+            self.context;
     } @catch (__unused NSException *exception) {
         context = 0;
     }
 
-    BOOL shouldHide = N15Locked && context == 2;
+    BOOL shouldHide =
+        N15Locked &&
+        context == 2;
 
-    self.view.hidden = shouldHide;
-    self.view.alpha = shouldHide ? 0.0 : 1.0;
+    self.view.hidden =
+        shouldHide;
+
+    self.view.alpha =
+        shouldHide
+        ? 0.0
+        : 1.0;
 }
 
 %end
@@ -2204,10 +3169,18 @@ static void N15SetLocked(BOOL locked) {
 
 %ctor {
     @autoreleasepool {
-        NSString *systemVersion = UIDevice.currentDevice.systemVersion;
+        NSString *systemVersion =
+            UIDevice.currentDevice.systemVersion;
 
-        if ([systemVersion compare:@"15.0" options:NSNumericSearch] == NSOrderedAscending ||
-            [systemVersion compare:@"16.0" options:NSNumericSearch] != NSOrderedAscending) {
+        if ([systemVersion
+                compare:@"15.0"
+                options:NSNumericSearch] ==
+                NSOrderedAscending ||
+            [systemVersion
+                compare:@"16.0"
+                options:NSNumericSearch] !=
+                NSOrderedAscending) {
+
             N15Enabled = NO;
             return;
         }
