@@ -1763,9 +1763,9 @@ static void N15SetLocked(BOOL locked) {
             inset.top = 0.0;
             self.contentInset = inset;
 
-            UIEdgeInsets indicatorInsets = self.scrollIndicatorInsets;
+            UIEdgeInsets indicatorInsets = self.verticalScrollIndicatorInsets;
             indicatorInsets.top = 0.0;
-            self.scrollIndicatorInsets = indicatorInsets;
+            self.verticalScrollIndicatorInsets = indicatorInsets;
 
             // Only normalize the old lock-screen-position offset when we
             // actually removed that 201pt inset. Do not fight normal scrolling.
