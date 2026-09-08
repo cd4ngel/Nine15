@@ -31,6 +31,17 @@
 @property(nonatomic, strong) UIView *backgroundView;
 @end
 
+@interface NCNotificationListCell : UICollectionViewCell
+@end
+
+@interface _NCNotificationViewControllerView : UIView
+@end
+
+@interface NCNotificationRootList : NSObject
+@property(nonatomic, assign, getter=isNotificationHistoryRevealed) BOOL notificationHistoryRevealed;
+- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated;
+@end
+
 @interface NCNotificationShortLookViewController : UIViewController
 @property(nonatomic, weak) id delegate;
 @end
@@ -48,9 +59,16 @@
 @end
 
 @interface NCNotificationStructuredListViewController : UIViewController
+- (UIEdgeInsets)insetMargins;
+- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated;
 @end
 
 @interface NCNotificationCombinedListViewController : UIViewController
+- (UIEdgeInsets)insetMargins;
+@end
+
+@interface CSCombinedListViewController : UIViewController
+- (UIEdgeInsets)_listViewDefaultContentInsets;
 @end
 
 @interface NCNotificationListCellActionButton : UIControl
@@ -106,6 +124,7 @@ static const void *N15CoverBlurAssociationKey = &N15CoverBlurAssociationKey;
 
 static __weak CSCoverSheetViewController *N15CurrentCoverController = nil;
 static NSUInteger N15NotificationCount = 0;
+static BOOL N15NotificationHistoryRevealed = NO;
 
 static N15LockOverlayView *N15GetOverlay(CSMainPageView *view) {
     if (!view) {
@@ -229,6 +248,103 @@ static id N15ObjectIvar(id object, const char *name) {
 }
 
 
+
+static void N15SendBool(id object, SEL selector, BOOL value) {
+    if (!object || !selector || ![object respondsToSelector:selector]) {
+        return;
+    }
+
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(object, selector, value);
+}
+
+static void N15SendCGFloat(id object, SEL selector, CGFloat value) {
+    if (!object || !selector || ![object respondsToSelector:selector]) {
+        return;
+    }
+
+    ((void (*)(id, SEL, CGFloat))objc_msgSend)(object, selector, value);
+}
+
+static BOOL N15IsNotificationBackgroundMaterial(UIView *view) {
+    if (!view) {
+        return NO;
+    }
+
+    NSString *className = NSStringFromClass(view.class);
+
+    return
+        [className isEqualToString:@"NCMaterialView"] ||
+        [className isEqualToString:@"MTMaterialView"];
+}
+
+static void N15RemoveNotificationPlatter(
+    NCNotificationShortLookView *view,
+    BOOL isBanner
+) {
+    if (!view || isBanner) {
+        return;
+    }
+
+    view.backgroundColor = UIColor.clearColor;
+    view.opaque = NO;
+    view.clipsToBounds = NO;
+    view.layer.masksToBounds = NO;
+    view.layer.mask = nil;
+    view.layer.cornerRadius = 0.0;
+
+    // PLPlatterView-style API. Disabling this is more reliable on iOS 15
+    // than repeatedly setting an existing material's alpha.
+    N15SendBool(
+        view,
+        NSSelectorFromString(@"setUsesBackgroundView:"),
+        NO
+    );
+
+    N15SendBool(
+        view,
+        NSSelectorFromString(@"setHasShadow:"),
+        NO
+    );
+
+    N15SendCGFloat(
+        view,
+        NSSelectorFromString(@"_setCornerRadius:"),
+        0.0
+    );
+
+    UIView *background = nil;
+
+    @try {
+        background = view.backgroundView;
+    } @catch (__unused NSException *exception) {
+        background = nil;
+    }
+
+    if ([background isKindOfClass:UIView.class]) {
+        background.hidden = YES;
+        background.alpha = 0.0;
+        background.backgroundColor = UIColor.clearColor;
+        background.layer.cornerRadius = 0.0;
+        background.layer.mask = nil;
+    }
+
+    // iOS 15 can keep an NCMaterialView/MTMaterialView as a direct child
+    // even after the platter background has been disabled. Only hide these
+    // exact background classes: do NOT recurse into the content hierarchy.
+    for (UIView *subview in view.subviews) {
+        if (subview == background) {
+            continue;
+        }
+
+        if (N15IsNotificationBackgroundMaterial(subview)) {
+            subview.hidden = YES;
+            subview.alpha = 0.0;
+            subview.backgroundColor = UIColor.clearColor;
+            subview.layer.cornerRadius = 0.0;
+        }
+    }
+}
+
 static void N15StyleNotificationText(UIView *root) {
     if (!root) {
         return;
@@ -339,6 +455,21 @@ static void N15SetNotificationCount(NSUInteger count) {
     dispatch_async(dispatch_get_main_queue(), ^{
         N15SendVoid((id)N15CurrentOverlay, NSSelectorFromString(@"updateLockedState"));
         N15UpdateNotificationBackdrop();
+    });
+}
+
+static void N15SetNotificationHistoryRevealed(BOOL revealed) {
+    if (N15NotificationHistoryRevealed == revealed) {
+        return;
+    }
+
+    N15NotificationHistoryRevealed = revealed;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        N15SendVoid(
+            (id)N15CurrentOverlay,
+            NSSelectorFromString(@"updateLockedState")
+        );
     });
 }
 
@@ -905,9 +1036,19 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     BOOL showLockUI = N15Enabled && N15Locked;
     BOOL mediaShowing = showLockUI && self.mediaView.hasContent;
 
-    self.timeLabel.hidden = !showLockUI || mediaShowing;
-    self.dateLabel.hidden = !showLockUI || mediaShowing;
-    self.separatorView.hidden = !showLockUI || mediaShowing;
+    // Once Notification History has been revealed, the classic clock/date
+    // should leave the screen instead of floating over the notification list.
+    BOOL hideClockForHistory =
+        showLockUI && N15NotificationHistoryRevealed && !mediaShowing;
+
+    self.timeLabel.hidden =
+        !showLockUI || mediaShowing || hideClockForHistory;
+
+    self.dateLabel.hidden =
+        !showLockUI || mediaShowing || hideClockForHistory;
+
+    self.separatorView.hidden =
+        !showLockUI || mediaShowing || hideClockForHistory;
 
     BOOL hideSliderForNotifications = N15NotificationCount > 0;
 
@@ -995,7 +1136,12 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 @end
 
 static void N15SetLocked(BOOL locked) {
+    BOOL changed = N15Locked != locked;
     N15Locked = locked;
+
+    if (changed) {
+        N15NotificationHistoryRevealed = NO;
+    }
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [N15CurrentOverlay updateLockedState];
@@ -1141,6 +1287,28 @@ static void N15SetLocked(BOOL locked) {
 
 %hook NCNotificationShortLookView
 
+- (void)_configureBackgroundViewIfNecessary {
+    %orig;
+
+    if (!N15Enabled || !self.window) {
+        return;
+    }
+
+    BOOL isBanner = N15IsBannerShortLook(self);
+    N15RemoveNotificationPlatter(self, isBanner);
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    %orig(previousTraitCollection);
+
+    if (!N15Enabled) {
+        return;
+    }
+
+    BOOL isBanner = N15IsBannerShortLook(self);
+    N15RemoveNotificationPlatter(self, isBanner);
+}
+
 - (void)layoutSubviews {
     %orig;
 
@@ -1150,32 +1318,16 @@ static void N15SetLocked(BOOL locked) {
 
     BOOL isBanner = N15IsBannerShortLook(self);
 
-    self.backgroundColor = UIColor.clearColor;
     self.layer.cornerRadius = 0.0;
+    self.layer.mask = nil;
     self.layer.masksToBounds = NO;
     self.clipsToBounds = NO;
 
-    @try {
-        UIView *background = self.backgroundView;
-
-        if ([background isKindOfClass:UIView.class]) {
-            background.layer.cornerRadius = 0.0;
-
-            if (isBanner) {
-                // Keep one continuous banner material, but square it like iOS 9.
-                background.hidden = NO;
-                background.alpha = 1.0;
-            } else {
-                // Lock Screen / Notification Center use one shared backdrop,
-                // not a blur platter for each individual notification.
-                background.hidden = YES;
-                background.alpha = 0.0;
-            }
-        }
-    } @catch (__unused NSException *exception) {
-    }
-
     if (!isBanner) {
+        // NineLS keeps Apple's actual notification content, but removes
+        // the individual platter. On iOS 15 this additionally needs the
+        // PLPlatterView background/shadow state disabled.
+        N15RemoveNotificationPlatter(self, NO);
         N15StyleNotificationText(self);
 
         UIView *separatorView = N15GetSeparatorView(self);
@@ -1183,7 +1335,7 @@ static void N15SetLocked(BOOL locked) {
         if (!separatorView) {
             separatorView = [[UIView alloc] init];
             separatorView.backgroundColor =
-                [UIColor colorWithWhite:1.0 alpha:0.28];
+                [UIColor colorWithWhite:1.0 alpha:0.32];
             separatorView.userInteractionEnabled = NO;
 
             N15SetSeparatorView(self, separatorView);
@@ -1194,8 +1346,8 @@ static void N15SetLocked(BOOL locked) {
 
         separatorView.frame =
             CGRectMake(
-                0,
-                MAX(CGRectGetHeight(self.bounds) - onePixel, 0),
+                0.0,
+                MAX(CGRectGetHeight(self.bounds) - onePixel, 0.0),
                 CGRectGetWidth(self.bounds),
                 onePixel
             );
@@ -1203,16 +1355,69 @@ static void N15SetLocked(BOOL locked) {
         [self bringSubviewToFront:separatorView];
 
         if (self.window && N15NotificationCount == 0) {
-            // Gives immediate visual feedback even before MasterList recounts.
             N15SetNotificationCount(1);
         }
     } else {
-        // Banners should be full-width/square rather than the modern pill/card.
-        for (UIView *subview in self.subviews) {
-            subview.layer.cornerRadius = 0.0;
+        // Do not change notification behavior; only remove the modern
+        // exaggerated rounding from banners.
+        self.layer.cornerRadius = 0.0;
+
+        UIView *background = nil;
+
+        @try {
+            background = self.backgroundView;
+        } @catch (__unused NSException *exception) {
+            background = nil;
         }
+
+        if ([background isKindOfClass:UIView.class]) {
+            background.layer.cornerRadius = 0.0;
+        }
+
         N15StyleNotificationText(self);
     }
+}
+
+%end
+
+// Clear the collection-cell/wrapper masks that otherwise keep the iOS 15
+// rounded-card silhouette even when the ShortLook platter itself is hidden.
+%hook NCNotificationListCell
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!N15Enabled) {
+        return;
+    }
+
+    self.backgroundColor = UIColor.clearColor;
+    self.contentView.backgroundColor = UIColor.clearColor;
+
+    self.layer.cornerRadius = 0.0;
+    self.layer.mask = nil;
+    self.layer.masksToBounds = NO;
+
+    self.contentView.layer.cornerRadius = 0.0;
+    self.contentView.layer.mask = nil;
+    self.contentView.layer.masksToBounds = NO;
+}
+
+%end
+
+%hook _NCNotificationViewControllerView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (!N15Enabled) {
+        return;
+    }
+
+    self.backgroundColor = UIColor.clearColor;
+    self.layer.cornerRadius = 0.0;
+    self.layer.mask = nil;
+    self.layer.masksToBounds = NO;
 }
 
 %end
@@ -1240,20 +1445,22 @@ static void N15SetLocked(BOOL locked) {
     } @catch (__unused NSException *exception) {
     }
 
-    NSArray<UILabel *> *labels = @[
-        primary ?: (UILabel *)[NSNull null],
-        secondary ?: (UILabel *)[NSNull null],
-        subtitle ?: (UILabel *)[NSNull null]
-    ];
+    if ([primary isKindOfClass:UILabel.class]) {
+        primary.layer.filters = nil;
+        primary.textColor = [UIColor colorWithWhite:1.0 alpha:0.98];
+        primary.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    }
 
-    for (id object in labels) {
-        if (![object isKindOfClass:UILabel.class]) {
-            continue;
-        }
+    if ([subtitle isKindOfClass:UILabel.class]) {
+        subtitle.layer.filters = nil;
+        subtitle.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
+        subtitle.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
+    }
 
-        UILabel *label = (UILabel *)object;
-        label.layer.filters = nil;
-        label.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
+    if ([secondary isKindOfClass:UILabel.class]) {
+        secondary.layer.filters = nil;
+        secondary.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
+        secondary.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
     }
 
     UITextView *secondaryTextView = N15ObjectIvar(self, "_secondaryTextView");
@@ -1261,6 +1468,8 @@ static void N15SetLocked(BOOL locked) {
         secondaryTextView.layer.filters = nil;
         secondaryTextView.textColor =
             [UIColor colorWithWhite:1.0 alpha:0.96];
+        secondaryTextView.font =
+            [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
         secondaryTextView.backgroundColor = UIColor.clearColor;
     }
 }
@@ -1467,6 +1676,87 @@ static void N15SetLocked(BOOL locked) {
 %end
 
 // Eliminate the modern gap between rounded cards.
+
+// iOS 15 adds horizontal margins around the modern notification cards.
+// Nine/iOS 9 uses a flat list, so keep only the vertical margins.
+%hook NCNotificationCombinedListViewController
+
+- (UIEdgeInsets)insetMargins {
+    UIEdgeInsets inset = %orig;
+
+    if (N15Enabled) {
+        inset.left = 0.0;
+        inset.right = 0.0;
+    }
+
+    return inset;
+}
+
+%end
+
+%hook NCNotificationStructuredListViewController
+
+- (UIEdgeInsets)insetMargins {
+    UIEdgeInsets inset = %orig;
+
+    if (N15Enabled) {
+        inset.left = 0.0;
+        inset.right = 0.0;
+    }
+
+    return inset;
+}
+
+- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
+    %orig(revealed, animated);
+
+    if (N15Enabled && N15Locked) {
+        N15SetNotificationHistoryRevealed(revealed);
+    }
+}
+
+%end
+
+// The CoverSheet reserves lock-screen date/clock space by default. When the
+// authenticated CoverSheet is acting as Notification Center, remove that
+// unused top inset so the list begins below the status bar instead.
+%hook CSCombinedListViewController
+
+- (UIEdgeInsets)_listViewDefaultContentInsets {
+    UIEdgeInsets inset = %orig;
+
+    if (N15Enabled && !N15Locked) {
+        inset.top = 0.0;
+    }
+
+    return inset;
+}
+
+%end
+
+// Track the actual "older notifications/history" state on the lock screen.
+// This lets the custom clock disappear exactly when the reveal gesture
+// completes, instead of merely checking whether notifications exist.
+%hook NCNotificationRootList
+
+- (void)setNotificationHistoryRevealed:(BOOL)revealed {
+    %orig(revealed);
+
+    if (N15Enabled && N15Locked) {
+        N15SetNotificationHistoryRevealed(revealed);
+    }
+}
+
+- (void)revealNotificationHistory:(BOOL)revealed animated:(BOOL)animated {
+    %orig(revealed, animated);
+
+    if (N15Enabled && N15Locked) {
+        N15SetNotificationHistoryRevealed(revealed);
+    }
+}
+
+%end
+
 %hook NCNotificationListCollectionViewFlowLayout
 
 - (void)prepareLayout {
@@ -1478,6 +1768,11 @@ static void N15SetLocked(BOOL locked) {
 
     self.minimumLineSpacing = 0.0;
     self.minimumInteritemSpacing = 0.0;
+
+    UIEdgeInsets inset = self.sectionInset;
+    inset.left = 0.0;
+    inset.right = 0.0;
+    self.sectionInset = inset;
 }
 
 %end
