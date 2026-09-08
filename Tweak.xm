@@ -257,24 +257,6 @@ static id N15ObjectIvar(id object, const char *name) {
     return ivar ? object_getIvar(object, ivar) : nil;
 }
 
-
-
-static void N15SendBool(id object, SEL selector, BOOL value) {
-    if (!object || !selector || ![object respondsToSelector:selector]) {
-        return;
-    }
-
-    ((void (*)(id, SEL, BOOL))objc_msgSend)(object, selector, value);
-}
-
-static void N15SendCGFloat(id object, SEL selector, CGFloat value) {
-    if (!object || !selector || ![object respondsToSelector:selector]) {
-        return;
-    }
-
-    ((void (*)(id, SEL, CGFloat))objc_msgSend)(object, selector, value);
-}
-
 static BOOL N15IsNotificationBackgroundMaterial(UIView *view) {
     if (!view) {
         return NO;
