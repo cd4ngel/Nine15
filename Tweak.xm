@@ -1,25 +1,46 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <objc/runtime.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 
 #pragma mark - Private classes
 
 @interface CSMainPageView : UIView
 @end
 
-@interface SBLockScreenManager : NSObject
+@interface CSCoverSheetViewController : UIViewController
+@property(nonatomic, getter=isAuthenticated) BOOL authenticated;
 @end
 
-#pragma mark - Globals
+@interface SBLockScreenManager : NSObject
++ (instancetype)sharedInstance;
+- (void)lockScreenViewControllerRequestsUnlock;
+- (BOOL)_finishUIUnlockFromSource:(int)source withOptions:(id)options;
+- (void)lockUIFromSource:(int)source withOptions:(id)options;
+@end
+
+@interface SBUICallToActionLabel : UIView
+- (void)setText:(id)text
+    forLanguage:(id)language
+       animated:(BOOL)animated;
+@end
+
+#pragma mark - State
 
 static BOOL N15Enabled = YES;
+static BOOL N15OnLockScreen = YES;
 
-static const void *N15SlideViewKey = &N15SlideViewKey;
+@class N15SlideToUnlockView;
 
-#pragma mark - SpringBoard helpers
+static __weak N15SlideToUnlockView *N15CurrentSlideView = nil;
 
-static id N15LockScreenManager(void) {
+static const void *N15SlideAssociationKey =
+    &N15SlideAssociationKey;
+
+#pragma mark - Helpers
+
+static id N15SharedLockScreenManager(void) {
     Class managerClass =
         NSClassFromString(@"SBLockScreenManager");
 
@@ -40,28 +61,9 @@ static id N15LockScreenManager(void) {
     );
 }
 
-static BOOL N15IsUILocked(void) {
-    id manager = N15LockScreenManager();
-
-    if (!manager) {
-        return YES;
-    }
-
-    SEL selector =
-        NSSelectorFromString(@"isUILocked");
-
-    if (![manager respondsToSelector:selector]) {
-        return YES;
-    }
-
-    return ((BOOL (*)(id, SEL))objc_msgSend)(
-        manager,
-        selector
-    );
-}
-
 static void N15RequestUnlock(void) {
-    id manager = N15LockScreenManager();
+    id manager =
+        N15SharedLockScreenManager();
 
     if (!manager) {
         return;
@@ -82,18 +84,150 @@ static void N15RequestUnlock(void) {
     );
 }
 
-#pragma mark - Slide to unlock
+static N15SlideToUnlockView *N15GetSlideView(
+    CSMainPageView *view
+) {
+    if (!view) {
+        return nil;
+    }
+
+    return objc_getAssociatedObject(
+        view,
+        N15SlideAssociationKey
+    );
+}
+
+static void N15SetSlideView(
+    CSMainPageView *view,
+    N15SlideToUnlockView *slideView
+) {
+    if (!view) {
+        return;
+    }
+
+    objc_setAssociatedObject(
+        view,
+        N15SlideAssociationKey,
+        slideView,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+}
+
+#pragma mark - Glint label
+
+@interface N15GlintLabel : UILabel
+@property(nonatomic, strong) CAGradientLayer *glintLayer;
+@end
+
+@implementation N15GlintLabel
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+
+    if (!self) {
+        return nil;
+    }
+
+    self.textAlignment =
+        NSTextAlignmentCenter;
+
+    self.textColor =
+        UIColor.whiteColor;
+
+    self.font =
+        [UIFont systemFontOfSize:21.0
+                         weight:UIFontWeightLight];
+
+    self.userInteractionEnabled =
+        NO;
+
+    self.layer.shadowColor =
+        UIColor.blackColor.CGColor;
+
+    self.layer.shadowOpacity =
+        0.35;
+
+    self.layer.shadowRadius =
+        1.5;
+
+    self.layer.shadowOffset =
+        CGSizeMake(0.0, 1.0);
+
+    _glintLayer =
+        [CAGradientLayer layer];
+
+    _glintLayer.colors = @[
+        (__bridge id)
+        [UIColor colorWithWhite:1.0 alpha:0.30].CGColor,
+
+        (__bridge id)
+        UIColor.whiteColor.CGColor,
+
+        (__bridge id)
+        [UIColor colorWithWhite:1.0 alpha:0.30].CGColor
+    ];
+
+    _glintLayer.locations =
+        @[@0.0, @0.5, @1.0];
+
+    _glintLayer.startPoint =
+        CGPointMake(0.0, 0.5);
+
+    _glintLayer.endPoint =
+        CGPointMake(1.0, 0.5);
+
+    self.layer.mask =
+        _glintLayer;
+
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+
+    self.glintLayer.frame =
+        self.bounds;
+
+    if (![self.glintLayer
+        animationForKey:@"nine15.glint"]) {
+
+        CABasicAnimation *animation =
+            [CABasicAnimation
+                animationWithKeyPath:@"locations"];
+
+        animation.fromValue =
+            @[@-1.0, @-0.5, @0.0];
+
+        animation.toValue =
+            @[@1.0, @1.5, @2.0];
+
+        animation.duration =
+            2.3;
+
+        animation.repeatCount =
+            HUGE_VALF;
+
+        [self.glintLayer
+            addAnimation:animation
+                  forKey:@"nine15.glint"];
+    }
+}
+
+@end
+
+#pragma mark - Slide to Unlock
 
 @interface N15SlideToUnlockView : UIView
 
-@property(nonatomic, strong) UILabel *arrowLabel;
-@property(nonatomic, strong) UILabel *textLabel;
-@property(nonatomic, strong) UIView *topLine;
+@property(nonatomic, strong) UIView *topSeparator;
+@property(nonatomic, strong) UILabel *chevronLabel;
+@property(nonatomic, strong) N15GlintLabel *slideLabel;
 @property(nonatomic, strong) UIPanGestureRecognizer *panGesture;
 
 @property(nonatomic, assign) CGFloat progress;
 @property(nonatomic, assign) BOOL completing;
 
+- (void)updateVisibility;
 - (void)resetAnimated:(BOOL)animated;
 
 @end
@@ -107,71 +241,83 @@ static void N15RequestUnlock(void) {
         return nil;
     }
 
-    self.backgroundColor = UIColor.clearColor;
-    self.userInteractionEnabled = YES;
+    self.backgroundColor =
+        UIColor.clearColor;
 
-    _topLine = [[UIView alloc] init];
-    _topLine.backgroundColor =
-        [UIColor colorWithWhite:1.0 alpha:0.18];
+    self.userInteractionEnabled =
+        YES;
 
-    [self addSubview:_topLine];
+    _topSeparator =
+        [[UIView alloc] init];
 
-    _arrowLabel = [[UILabel alloc] init];
+    _topSeparator.backgroundColor =
+        [UIColor colorWithWhite:1.0
+                          alpha:0.20];
 
-    _arrowLabel.text = @"›";
-    _arrowLabel.textAlignment = NSTextAlignmentCenter;
-    _arrowLabel.textColor =
-        [UIColor colorWithWhite:1.0 alpha:0.92];
+    _topSeparator.userInteractionEnabled =
+        NO;
 
-    _arrowLabel.font =
+    [self addSubview:_topSeparator];
+
+    _chevronLabel =
+        [[UILabel alloc] init];
+
+    _chevronLabel.text =
+        @"›";
+
+    _chevronLabel.textAlignment =
+        NSTextAlignmentCenter;
+
+    _chevronLabel.textColor =
+        [UIColor colorWithWhite:1.0
+                          alpha:0.90];
+
+    _chevronLabel.font =
         [UIFont systemFontOfSize:40.0
                          weight:UIFontWeightLight];
 
-    _arrowLabel.userInteractionEnabled = NO;
+    _chevronLabel.userInteractionEnabled =
+        NO;
 
-    _arrowLabel.layer.shadowColor =
+    _chevronLabel.layer.shadowColor =
         UIColor.blackColor.CGColor;
 
-    _arrowLabel.layer.shadowOpacity = 0.35;
-    _arrowLabel.layer.shadowRadius = 2.0;
-    _arrowLabel.layer.shadowOffset =
+    _chevronLabel.layer.shadowOpacity =
+        0.35;
+
+    _chevronLabel.layer.shadowRadius =
+        1.5;
+
+    _chevronLabel.layer.shadowOffset =
         CGSizeMake(0.0, 1.0);
 
-    [self addSubview:_arrowLabel];
+    [self addSubview:_chevronLabel];
 
-    _textLabel = [[UILabel alloc] init];
+    _slideLabel =
+        [[N15GlintLabel alloc] init];
 
-    _textLabel.text = @"slide to unlock";
-    _textLabel.textAlignment = NSTextAlignmentCenter;
+    _slideLabel.text =
+        @"slide to unlock";
 
-    _textLabel.textColor =
-        [UIColor colorWithWhite:1.0 alpha:0.88];
-
-    _textLabel.font =
-        [UIFont systemFontOfSize:21.0
-                         weight:UIFontWeightLight];
-
-    _textLabel.userInteractionEnabled = NO;
-
-    _textLabel.layer.shadowColor =
-        UIColor.blackColor.CGColor;
-
-    _textLabel.layer.shadowOpacity = 0.30;
-    _textLabel.layer.shadowRadius = 2.0;
-    _textLabel.layer.shadowOffset =
-        CGSizeMake(0.0, 1.0);
-
-    [self addSubview:_textLabel];
+    [self addSubview:_slideLabel];
 
     _panGesture =
         [[UIPanGestureRecognizer alloc]
             initWithTarget:self
                     action:@selector(handlePan:)];
 
-    _panGesture.minimumNumberOfTouches = 1;
-    _panGesture.maximumNumberOfTouches = 1;
+    _panGesture.minimumNumberOfTouches =
+        1;
+
+    _panGesture.maximumNumberOfTouches =
+        1;
+
+    _panGesture.cancelsTouchesInView =
+        YES;
 
     [self addGestureRecognizer:_panGesture];
+
+    [self updateVisibility];
 
     return self;
 }
@@ -182,16 +328,15 @@ static void N15RequestUnlock(void) {
     CGFloat width =
         CGRectGetWidth(self.bounds);
 
-    CGFloat height =
-        CGRectGetHeight(self.bounds);
-
     CGFloat scale =
         UIScreen.mainScreen.scale;
 
     CGFloat onePixel =
-        scale > 0.0 ? 1.0 / scale : 0.5;
+        scale > 0.0
+        ? 1.0 / scale
+        : 0.5;
 
-    self.topLine.frame =
+    self.topSeparator.frame =
         CGRectMake(
             0.0,
             0.0,
@@ -199,54 +344,73 @@ static void N15RequestUnlock(void) {
             onePixel
         );
 
-    CGFloat contentHeight =
-        MIN(height, 74.0);
-
-    self.arrowLabel.frame =
+    self.chevronLabel.frame =
         CGRectMake(
             14.0,
             2.0,
             48.0,
-            contentHeight - 4.0
+            70.0
         );
 
-    self.textLabel.frame =
+    self.slideLabel.frame =
         CGRectMake(
             54.0,
             2.0,
             MAX(width - 108.0, 0.0),
-            contentHeight - 4.0
+            70.0
         );
 
-    [self applyProgressAnimated:NO];
+    [self applyProgress];
+}
+
+- (void)updateVisibility {
+    BOOL shouldShow =
+        N15Enabled &&
+        N15OnLockScreen;
+
+    self.hidden =
+        !shouldShow;
+
+    self.userInteractionEnabled =
+        shouldShow;
+
+    if (shouldShow &&
+        !self.completing) {
+
+        self.alpha =
+            1.0;
+    }
 }
 
 - (void)handlePan:
     (UIPanGestureRecognizer *)gesture {
 
-    if (self.completing ||
-        !N15IsUILocked()) {
+    if (!N15OnLockScreen ||
+        self.completing) {
 
         return;
     }
 
-    CGPoint translation =
-        [gesture translationInView:self];
+    CGFloat width =
+        CGRectGetWidth(self.bounds);
 
     CGFloat availableDistance =
         MAX(
-            CGRectGetWidth(self.bounds) - 82.0,
+            width - 82.0,
             1.0
         );
+
+    CGPoint translation =
+        [gesture translationInView:self];
 
     if (gesture.state ==
         UIGestureRecognizerStateBegan) {
 
-        self.progress = 0.0;
+        self.progress =
+            0.0;
 
-        [gesture
-            setTranslation:CGPointZero
-                    inView:self];
+        self.slideLabel.alpha =
+            1.0;
 
         return;
     }
@@ -254,16 +418,20 @@ static void N15RequestUnlock(void) {
     if (gesture.state ==
         UIGestureRecognizerStateChanged) {
 
-        CGFloat x =
-            MAX(translation.x, 0.0);
+        CGFloat horizontalDistance =
+            MAX(
+                translation.x,
+                0.0
+            );
 
         self.progress =
             MIN(
-                x / availableDistance,
+                horizontalDistance /
+                availableDistance,
                 1.0
             );
 
-        [self applyProgressAnimated:NO];
+        [self applyProgress];
 
         return;
     }
@@ -282,24 +450,27 @@ static void N15RequestUnlock(void) {
             self.progress >= 0.72 ||
             (
                 self.progress >= 0.35 &&
-                velocity >= 850.0
+                velocity > 850.0
             );
 
         if (completed) {
-            [self completeUnlock];
+            [self completeSlide];
         } else {
             [self resetAnimated:YES];
         }
     }
 }
 
-- (void)completeUnlock {
+- (void)completeSlide {
     if (self.completing) {
         return;
     }
 
-    self.completing = YES;
-    self.progress = 1.0;
+    self.completing =
+        YES;
+
+    self.progress =
+        1.0;
 
     [UIView
         animateWithDuration:0.16
@@ -309,42 +480,61 @@ static void N15RequestUnlock(void) {
             UIViewAnimationOptionBeginFromCurrentState
                  animations:^{
 
-        [self applyProgressAnimated:NO];
+        [self applyProgress];
 
-        self.textLabel.alpha = 0.0;
+        self.slideLabel.alpha =
+            0.0;
 
     } completion:^(__unused BOOL finished) {
 
+        /*
+         * Important:
+         * This only makes Apple's normal unlock request.
+         * It does NOT block Home, Touch ID, passcode,
+         * or any SpringBoard unlock method.
+         */
         N15RequestUnlock();
 
+        /*
+         * If unlock requires a passcode, the Lock Screen
+         * still exists. Restore the slider if necessary.
+         *
+         * If unlock succeeds, _finishUIUnlockFromSource:
+         * will change N15OnLockScreen to NO and hide us.
+         */
         dispatch_after(
             dispatch_time(
                 DISPATCH_TIME_NOW,
-                (int64_t)(0.65 * NSEC_PER_SEC)
+                (int64_t)(
+                    0.55 *
+                    NSEC_PER_SEC
+                )
             ),
             dispatch_get_main_queue(),
             ^{
-                if (!N15IsUILocked()) {
-                    self.hidden = YES;
-                    return;
+                if (N15OnLockScreen) {
+                    [self resetAnimated:YES];
                 }
-
-                self.completing = NO;
-
-                [self resetAnimated:YES];
             }
         );
     }];
 }
 
-- (void)resetAnimated:(BOOL)animated {
-    self.completing = NO;
-    self.progress = 0.0;
+- (void)resetAnimated:
+    (BOOL)animated {
+
+    self.completing =
+        NO;
+
+    self.progress =
+        0.0;
 
     void (^changes)(void) = ^{
-        self.textLabel.alpha = 1.0;
+        self.chevronLabel.transform =
+            CGAffineTransformIdentity;
 
-        [self applyProgressAnimated:NO];
+        self.slideLabel.alpha =
+            1.0;
     };
 
     if (!animated) {
@@ -358,71 +548,77 @@ static void N15RequestUnlock(void) {
                     options:
             UIViewAnimationOptionCurveEaseOut |
             UIViewAnimationOptionBeginFromCurrentState
-                 animations:changes
+                 animations:
+            changes
                  completion:nil];
 }
 
-- (void)applyProgressAnimated:
-    (__unused BOOL)animated {
-
+- (void)applyProgress {
     CGFloat width =
         CGRectGetWidth(self.bounds);
 
     CGFloat availableDistance =
-        MAX(width - 82.0, 1.0);
+        MAX(
+            width - 82.0,
+            1.0
+        );
 
     CGFloat translation =
         availableDistance *
         self.progress;
 
-    self.arrowLabel.transform =
+    self.chevronLabel.transform =
         CGAffineTransformMakeTranslation(
             translation,
             0.0
         );
 
     if (!self.completing) {
-        self.textLabel.alpha =
-            1.0 -
-            (self.progress * 0.72);
+        self.slideLabel.alpha =
+            MAX(
+                1.0 -
+                self.progress * 0.70,
+                0.20
+            );
     }
 }
 
 @end
 
-#pragma mark - Associated object
+#pragma mark - State updates
 
-static N15SlideToUnlockView *
-N15GetSlideView(
-    CSMainPageView *view
+static void N15SetOnLockScreen(
+    BOOL onLockScreen
 ) {
-    if (!view) {
-        return nil;
-    }
+    if (N15OnLockScreen ==
+        onLockScreen) {
 
-    return objc_getAssociatedObject(
-        view,
-        N15SlideViewKey
-    );
-}
-
-static void N15SetSlideView(
-    CSMainPageView *view,
-    N15SlideToUnlockView *slideView
-) {
-    if (!view) {
         return;
     }
 
-    objc_setAssociatedObject(
-        view,
-        N15SlideViewKey,
-        slideView,
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    N15OnLockScreen =
+        onLockScreen;
+
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^{
+            N15SlideToUnlockView *slideView =
+                N15CurrentSlideView;
+
+            if (!slideView) {
+                return;
+            }
+
+            [slideView updateVisibility];
+
+            if (onLockScreen) {
+                [slideView resetAnimated:NO];
+            }
+        }
     );
 }
 
-#pragma mark - Lock Screen
+#pragma mark - Main Lock Screen view
 
 %hook CSMainPageView
 
@@ -453,6 +649,9 @@ static void N15SetSlideView(
         [self addSubview:slideView];
     }
 
+    N15CurrentSlideView =
+        slideView;
+
     CGFloat width =
         CGRectGetWidth(self.bounds);
 
@@ -462,31 +661,142 @@ static void N15SetSlideView(
     CGFloat safeBottom =
         self.safeAreaInsets.bottom;
 
-    CGFloat sliderHeight =
-        78.0 + safeBottom;
+    CGFloat slideHeight =
+        76.0 + safeBottom;
 
     slideView.frame =
         CGRectMake(
             0.0,
             MAX(
-                height - sliderHeight,
+                height - slideHeight,
                 0.0
             ),
             width,
-            sliderHeight
+            slideHeight
         );
 
-    BOOL locked =
-        N15IsUILocked();
+    /*
+     * We are NOT asking SpringBoard whether it is locked
+     * here. layoutSubviews can run dozens of times during
+     * Touch ID/authentication/transitions.
+     *
+     * Visibility comes only from N15OnLockScreen.
+     */
+    [slideView updateVisibility];
 
-    slideView.hidden =
-        !locked;
-
-    if (locked) {
-        [self
-            bringSubviewToFront:
-                slideView];
+    if (N15OnLockScreen) {
+        [self bringSubviewToFront:slideView];
     }
+}
+
+%end
+
+#pragma mark - Lock Screen state
+
+%hook CSCoverSheetViewController
+
+- (void)viewWillAppear:
+    (BOOL)animated {
+
+    %orig;
+
+    /*
+     * Same basic approach used by NineLS:
+     * when CoverSheet appears, authenticated == NO means
+     * this is the actual Lock Screen.
+     *
+     * We intentionally do NOT hook setAuthenticated:.
+     * Touch ID can authenticate while the Lock Screen is
+     * still visible, and the slider must remain present.
+     */
+    BOOL authenticated =
+        NO;
+
+    @try {
+        authenticated =
+            self.authenticated;
+    } @catch (__unused NSException *exception) {
+        authenticated =
+            NO;
+    }
+
+    N15SetOnLockScreen(
+        !authenticated
+    );
+}
+
+%end
+
+#pragma mark - Observe lock/unlock completion only
+
+%hook SBLockScreenManager
+
+- (void)lockUIFromSource:
+    (int)source
+            withOptions:
+    (id)options {
+
+    /*
+     * Never block or alter Apple's locking call.
+     */
+    %orig(source, options);
+
+    if (N15Enabled) {
+        N15SetOnLockScreen(YES);
+    }
+}
+
+- (BOOL)_finishUIUnlockFromSource:
+    (int)source
+                      withOptions:
+    (id)options {
+
+    /*
+     * Never block or modify the unlock.
+     * First let SpringBoard finish normally.
+     */
+    BOOL result =
+        %orig(source, options);
+
+    if (N15Enabled &&
+        result) {
+
+        N15SetOnLockScreen(NO);
+    }
+
+    return result;
+}
+
+%end
+
+#pragma mark - Hide Apple's "Press home to unlock" text
+
+%hook SBUICallToActionLabel
+
+- (void)setText:
+    (id)text
+    forLanguage:
+    (id)language
+    animated:
+    (BOOL)animated {
+
+    if (N15Enabled &&
+        N15OnLockScreen) {
+
+        %orig(
+            @"",
+            language,
+            animated
+        );
+
+        return;
+    }
+
+    %orig(
+        text,
+        language,
+        animated
+    );
 }
 
 %end
@@ -498,20 +808,23 @@ static void N15SetSlideView(
         NSString *version =
             UIDevice.currentDevice.systemVersion;
 
-        BOOL isIOS15OrNewer =
+        BOOL iOS15OrNewer =
             [version
                 compare:@"15.0"
                 options:NSNumericSearch] !=
             NSOrderedAscending;
 
-        BOOL isBeforeIOS16 =
+        BOOL beforeIOS16 =
             [version
                 compare:@"16.0"
                 options:NSNumericSearch] ==
             NSOrderedAscending;
 
         N15Enabled =
-            isIOS15OrNewer &&
-            isBeforeIOS16;
+            iOS15OrNewer &&
+            beforeIOS16;
+
+        N15OnLockScreen =
+            YES;
     }
 }
