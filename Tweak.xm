@@ -229,35 +229,6 @@ static id N15ObjectIvar(id object, const char *name) {
 }
 
 
-static void N15ClearNotificationMaterials(UIView *root) {
-    if (!root) {
-        return;
-    }
-
-    root.backgroundColor = UIColor.clearColor;
-    root.layer.cornerRadius = 0.0;
-
-    for (UIView *subview in root.subviews) {
-        NSString *className = NSStringFromClass([subview class]);
-
-        BOOL isMaterial =
-            [className rangeOfString:@"Material" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            [className rangeOfString:@"Platter" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            [className rangeOfString:@"VisualStyling" options:NSCaseInsensitiveSearch].location != NSNotFound;
-
-        if (isMaterial) {
-            subview.backgroundColor = UIColor.clearColor;
-            subview.layer.cornerRadius = 0.0;
-            subview.layer.masksToBounds = NO;
-            subview.alpha = 0.0;
-        } else {
-            subview.layer.cornerRadius = 0.0;
-        }
-
-        N15ClearNotificationMaterials(subview);
-    }
-}
-
 static void N15StyleNotificationText(UIView *root) {
     if (!root) {
         return;
@@ -366,7 +337,8 @@ static void N15SetNotificationCount(NSUInteger count) {
     N15NotificationCount = count;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-    N15SendVoid((id)N15CurrentOverlay, NSSelectorFromString(@"updateLockedState"));        N15UpdateNotificationBackdrop();
+        N15SendVoid((id)N15CurrentOverlay, NSSelectorFromString(@"updateLockedState"));
+        N15UpdateNotificationBackdrop();
     });
 }
 
@@ -375,6 +347,12 @@ static void N15SetNotificationCount(NSUInteger count) {
 typedef void (*N15MRGetNowPlayingInfoFunction)(
     dispatch_queue_t queue,
     void (^completion)(CFDictionaryRef information)
+);
+
+
+typedef void (*N15MRGetNowPlayingApplicationIsPlayingFunction)(
+    dispatch_queue_t queue,
+    void (^completion)(Boolean isPlaying)
 );
 
 typedef Boolean (*N15MRSendCommandFunction)(NSInteger command, id userInfo);
@@ -399,6 +377,20 @@ static N15MRGetNowPlayingInfoFunction N15GetNowPlayingInfoFunction(void) {
     return (N15MRGetNowPlayingInfoFunction)dlsym(
         handle,
         "MRMediaRemoteGetNowPlayingInfo"
+    );
+}
+
+
+static N15MRGetNowPlayingApplicationIsPlayingFunction
+N15GetNowPlayingApplicationIsPlayingFunction(void) {
+    void *handle = N15MediaRemoteHandle();
+    if (!handle) {
+        return NULL;
+    }
+
+    return (N15MRGetNowPlayingApplicationIsPlayingFunction)dlsym(
+        handle,
+        "MRMediaRemoteGetNowPlayingApplicationIsPlaying"
     );
 }
 
@@ -517,6 +509,8 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 @property(nonatomic, strong) UIButton *nextButton;
 @property(nonatomic, strong) NSTimer *refreshTimer;
 @property(nonatomic, assign) BOOL hasContent;
+@property(nonatomic, assign) BOOL isPlaying;
+- (void)updatePlaybackButton;
 @end
 
 @implementation N15MediaView
@@ -571,7 +565,7 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     [self addSubview:_previousButton];
 
     _playPauseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_playPauseButton setImage:[UIImage systemImageNamed:@"playpause.fill"
+    [_playPauseButton setImage:[UIImage systemImageNamed:@"play.fill"
                                        withConfiguration:configuration]
                       forState:UIControlStateNormal];
     _playPauseButton.tintColor = UIColor.whiteColor;
@@ -642,8 +636,34 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     N15SendMediaCommand(N15MediaRemoteCommandPreviousTrack);
 }
 
+- (void)updatePlaybackButton {
+    NSString *symbolName = self.isPlaying ? @"pause.fill" : @"play.fill";
+
+    UIImageSymbolConfiguration *configuration =
+        [UIImageSymbolConfiguration configurationWithPointSize:28
+                                                        weight:UIImageSymbolWeightRegular];
+
+    UIImage *image =
+        [UIImage systemImageNamed:symbolName
+                withConfiguration:configuration];
+
+    [self.playPauseButton setImage:image forState:UIControlStateNormal];
+}
+
 - (void)playPauseTapped {
+    // Update immediately for responsive UI, then reconcile with MediaRemote.
+    self.isPlaying = !self.isPlaying;
+    [self updatePlaybackButton];
+
     N15SendMediaCommand(N15MediaRemoteCommandTogglePlayPause);
+
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.30 * NSEC_PER_SEC)),
+        dispatch_get_main_queue(),
+        ^{
+            [self refreshNowPlaying];
+        }
+    );
 }
 
 - (void)nextTapped {
@@ -677,6 +697,9 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
         NSData *artworkData =
             N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoArtworkData");
 
+        NSNumber *playbackRate =
+            N15InfoValue(info, "kMRMediaRemoteNowPlayingInfoPlaybackRate");
+
         BOOL hasContent =
             title.length > 0 || artist.length > 0 || artworkData.length > 0;
 
@@ -686,14 +709,33 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
         strongSelf.titleLabel.text = title.length ? title : @"Now Playing";
         strongSelf.artistLabel.text = artist ?: @"";
 
+        if ([playbackRate isKindOfClass:NSNumber.class]) {
+            strongSelf.isPlaying = playbackRate.doubleValue > 0.01;
+            [strongSelf updatePlaybackButton];
+        }
+
         if (artworkData.length > 0) {
             strongSelf.artworkView.image = [UIImage imageWithData:artworkData];
+            strongSelf.artworkView.contentMode = UIViewContentModeScaleAspectFill;
         } else {
             strongSelf.artworkView.image =
                 [UIImage systemImageNamed:@"music.note"];
             strongSelf.artworkView.tintColor =
                 [UIColor colorWithWhite:1.0 alpha:0.65];
             strongSelf.artworkView.contentMode = UIViewContentModeScaleAspectFit;
+        }
+
+        N15MRGetNowPlayingApplicationIsPlayingFunction playingFunction =
+            N15GetNowPlayingApplicationIsPlayingFunction();
+
+        if (playingFunction) {
+            playingFunction(
+                dispatch_get_main_queue(),
+                ^(Boolean isPlaying) {
+                    strongSelf.isPlaying = (BOOL)isPlaying;
+                    [strongSelf updatePlaybackButton];
+                }
+            );
         }
 
         [strongSelf.superview setNeedsLayout];
@@ -832,6 +874,9 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
 
     self.mediaView.frame = self.bounds;
 
+    // The player is full-screen, so keep slide-to-unlock above it.
+    [self bringSubviewToFront:self.sliderHitView];
+
     [self updateSlideTransformAnimated:NO];
 }
 
@@ -867,14 +912,14 @@ static void N15SendMediaCommand(N15MediaRemoteCommand command) {
     BOOL hideSliderForNotifications = N15NotificationCount > 0;
 
     self.sliderHitView.hidden =
-        !showLockUI || mediaShowing || hideSliderForNotifications;
+        !showLockUI || hideSliderForNotifications;
 
     self.mediaView.hidden = !mediaShowing;
     [self.mediaView refreshNowPlaying];
 }
 
 - (void)handleSlide:(UIPanGestureRecognizer *)gesture {
-    if (!N15Locked || self.mediaView.hasContent) {
+    if (!N15Locked) {
         return;
     }
 
@@ -1131,7 +1176,6 @@ static void N15SetLocked(BOOL locked) {
     }
 
     if (!isBanner) {
-        N15ClearNotificationMaterials(self);
         N15StyleNotificationText(self);
 
         UIView *separatorView = N15GetSeparatorView(self);
@@ -1472,11 +1516,12 @@ static void N15SetLocked(BOOL locked) {
         context = 0;
     }
 
-    // MediaControls context 2 is the Lock Screen on the iOS 14/15-era stack.
-    if (context == 2) {
-        self.view.hidden = YES;
-        self.view.alpha = 0.0;
-    }
+    // Hide the stock player only on the actual locked CoverSheet.
+    // Once authenticated / in Notification Center, restore the native player.
+    BOOL shouldHide = N15Locked && context == 2;
+
+    self.view.hidden = shouldHide;
+    self.view.alpha = shouldHide ? 0.0 : 1.0;
 }
 
 - (void)viewWillLayoutSubviews {
@@ -1494,10 +1539,10 @@ static void N15SetLocked(BOOL locked) {
         context = 0;
     }
 
-    if (context == 2) {
-        self.view.hidden = YES;
-        self.view.alpha = 0.0;
-    }
+    BOOL shouldHide = N15Locked && context == 2;
+
+    self.view.hidden = shouldHide;
+    self.view.alpha = shouldHide ? 0.0 : 1.0;
 }
 
 %end
