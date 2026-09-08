@@ -51,3 +51,23 @@ On Dopamine:
 
 If SpringBoard enters Safe Mode, uninstall Nine15 and collect the crash log
 before trying another build.
+
+
+## 0.2.0 visual rewrite
+
+The notification rendering path was rewritten after comparing the iOS 15
+result against the original Nine/NineLS look:
+
+- Removes per-notification material/blur cards on Lock Screen and Notification Center.
+- Uses one dark CoverSheet blur behind the entire notification list.
+- Adds thin full-width separators.
+- Forces white/vibrant notification text.
+- Removes coalescing ("Show Less") controls and forces ungrouped presentation.
+- Removes the custom "Notifications" title from the Lock Screen.
+- Keeps the stock Lock Screen date view hidden in Notification Center.
+- Hides slide-to-unlock while notifications are present, like NineLS' auto-hide behavior.
+- Squares notification banners while preserving their native interactions.
+
+The design/architecture is independently reimplemented for iOS 15 and was
+informed by the MIT-licensed NineLS project by Minh-Ton:
+https://github.com/minh-ton/NineLS
