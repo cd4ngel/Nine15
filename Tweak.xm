@@ -1,19 +1,17 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <math.h>
 
 #pragma mark - Private declarations
 
-@interface CSMainPageView : UIView
-@end
-
-@interface CSScrollView : UIScrollView
-@end
-
 @interface CSCoverSheetViewController : UIViewController
 @property(nonatomic, getter=isAuthenticated) BOOL authenticated;
+@end
+
+@interface SBLockScreenManager : NSObject
 @end
 
 @interface SBUICallToActionLabel : UIView
@@ -22,96 +20,93 @@
        animated:(BOOL)animated;
 @end
 
-@interface SBLockScreenManager : NSObject
-+ (instancetype)sharedInstance;
-- (void)lockScreenViewControllerRequestsUnlock;
-@end
-
 #pragma mark - State
 
 static BOOL N15Enabled = YES;
-static BOOL N15OnLockScreen = YES;
+static BOOL N15OnLockScreen = NO;
 
-static __weak CSMainPageView *N15CurrentMainPageView = nil;
+@class N15SlideToUnlockView;
 
-static const void *N15SlideVisualKey =
-    &N15SlideVisualKey;
+static __weak N15SlideToUnlockView *N15CurrentSlideView = nil;
 
-static const void *N15PanInstalledKey =
-    &N15PanInstalledKey;
+static const void *N15SlideViewKey =
+    &N15SlideViewKey;
 
-static const void *N15PanStartOffsetKey =
-    &N15PanStartOffsetKey;
+#pragma mark - SpringBoard helpers
 
-static const void *N15PanRequestSentKey =
-    &N15PanRequestSentKey;
-
-#pragma mark - Helpers
-
-static void N15SetOnLockScreen(
-    BOOL onLockScreen
-) {
-    N15OnLockScreen =
-        onLockScreen;
-
-    CSMainPageView *mainPageView =
-        N15CurrentMainPageView;
-
-    if (mainPageView) {
-        [mainPageView setNeedsLayout];
-    }
-}
-
-static void N15RequestUnlock(void) {
+static id N15LockScreenManager(void) {
     Class managerClass =
-        NSClassFromString(
-            @"SBLockScreenManager"
-        );
+        NSClassFromString(@"SBLockScreenManager");
 
     if (!managerClass) {
-        return;
+        return nil;
     }
 
     SEL sharedSelector =
-        NSSelectorFromString(
-            @"sharedInstance"
-        );
+        NSSelectorFromString(@"sharedInstance");
 
-    if (![managerClass
-        respondsToSelector:
-            sharedSelector]) {
+    if (![managerClass respondsToSelector:sharedSelector]) {
+        return nil;
+    }
 
+    return ((id (*)(id, SEL))objc_msgSend)(
+        managerClass,
+        sharedSelector
+    );
+}
+
+static BOOL N15SystemUILocked(BOOL fallback) {
+    id manager =
+        N15LockScreenManager();
+
+    if (!manager) {
+        return fallback;
+    }
+
+    SEL selector =
+        NSSelectorFromString(@"isUILocked");
+
+    if (![manager respondsToSelector:selector]) {
+        return fallback;
+    }
+
+    return ((BOOL (*)(id, SEL))objc_msgSend)(
+        manager,
+        selector
+    );
+}
+
+static void N15RequestUnlock(void) {
+    id manager =
+        N15LockScreenManager();
+
+    if (!manager) {
         return;
     }
 
-    id manager =
-        ((id (*)(id, SEL))objc_msgSend)(
-            managerClass,
-            sharedSelector
-        );
-
-    SEL unlockSelector =
+    SEL selector =
         NSSelectorFromString(
             @"lockScreenViewControllerRequestsUnlock"
         );
 
-    if (!manager ||
-        ![manager
-            respondsToSelector:
-                unlockSelector]) {
-
+    if (![manager respondsToSelector:selector]) {
         return;
     }
 
     ((void (*)(id, SEL))objc_msgSend)(
         manager,
-        unlockSelector
+        selector
     );
 }
 
-#pragma mark - Visual-only Slide to Unlock
+static void N15SetOnLockScreen(
+    BOOL onLockScreen
+);
 
-@interface N15SlideVisualView : UIView
+#pragma mark - Slide to unlock view
+
+@interface N15SlideToUnlockView :
+    UIView <UIGestureRecognizerDelegate>
 
 @property(nonatomic, strong)
 UIView *separatorView;
@@ -122,52 +117,56 @@ UILabel *chevronLabel;
 @property(nonatomic, strong)
 UILabel *textLabel;
 
+@property(nonatomic, strong)
+UIPanGestureRecognizer *panGesture;
+
+@property(nonatomic, assign)
+CGFloat progress;
+
+@property(nonatomic, assign)
+BOOL completing;
+
+- (void)installGesturePriority;
+- (void)resetAnimated:(BOOL)animated;
+
 @end
 
-@implementation N15SlideVisualView
+@implementation N15SlideToUnlockView
 
-- (instancetype)initWithFrame:
-    (CGRect)frame {
-
+- (instancetype)initWithFrame:(CGRect)frame {
     self =
-        [super
-            initWithFrame:frame];
+        [super initWithFrame:frame];
 
     if (!self) {
         return nil;
     }
 
-    /*
-     * Important:
-     * this entire view is visual only.
-     * It never participates in touch handling.
-     */
     self.backgroundColor =
         UIColor.clearColor;
 
     self.userInteractionEnabled =
+        YES;
+
+    self.clipsToBounds =
         NO;
 
     _separatorView =
         [[UIView alloc]
-            initWithFrame:
-                CGRectZero];
+            initWithFrame:CGRectZero];
 
     _separatorView.backgroundColor =
         [UIColor
             colorWithWhite:1.0
-                     alpha:0.18];
+                     alpha:0.20];
 
     _separatorView.userInteractionEnabled =
         NO;
 
-    [self addSubview:
-        _separatorView];
+    [self addSubview:_separatorView];
 
     _chevronLabel =
         [[UILabel alloc]
-            initWithFrame:
-                CGRectZero];
+            initWithFrame:CGRectZero];
 
     _chevronLabel.text =
         @"›";
@@ -178,13 +177,12 @@ UILabel *textLabel;
     _chevronLabel.textColor =
         [UIColor
             colorWithWhite:1.0
-                     alpha:0.88];
+                     alpha:0.92];
 
     _chevronLabel.font =
         [UIFont
-            systemFontOfSize:38.0
-                     weight:
-                UIFontWeightLight];
+            systemFontOfSize:40.0
+                     weight:UIFontWeightLight];
 
     _chevronLabel.userInteractionEnabled =
         NO;
@@ -193,24 +191,19 @@ UILabel *textLabel;
         UIColor.blackColor.CGColor;
 
     _chevronLabel.layer.shadowOpacity =
-        0.30;
+        0.35;
 
     _chevronLabel.layer.shadowRadius =
         1.5;
 
     _chevronLabel.layer.shadowOffset =
-        CGSizeMake(
-            0.0,
-            1.0
-        );
+        CGSizeMake(0.0, 1.0);
 
-    [self addSubview:
-        _chevronLabel];
+    [self addSubview:_chevronLabel];
 
     _textLabel =
         [[UILabel alloc]
-            initWithFrame:
-                CGRectZero];
+            initWithFrame:CGRectZero];
 
     _textLabel.text =
         @"slide to unlock";
@@ -226,8 +219,7 @@ UILabel *textLabel;
     _textLabel.font =
         [UIFont
             systemFontOfSize:21.0
-                     weight:
-                UIFontWeightLight];
+                     weight:UIFontWeightLight];
 
     _textLabel.userInteractionEnabled =
         NO;
@@ -236,30 +228,81 @@ UILabel *textLabel;
         UIColor.blackColor.CGColor;
 
     _textLabel.layer.shadowOpacity =
-        0.30;
+        0.35;
 
     _textLabel.layer.shadowRadius =
         1.5;
 
     _textLabel.layer.shadowOffset =
-        CGSizeMake(
-            0.0,
-            1.0
-        );
+        CGSizeMake(0.0, 1.0);
 
-    [self addSubview:
-        _textLabel];
+    [self addSubview:_textLabel];
+
+    _panGesture =
+        [[UIPanGestureRecognizer alloc]
+            initWithTarget:self
+                    action:@selector(handlePan:)];
+
+    _panGesture.delegate =
+        self;
+
+    _panGesture.minimumNumberOfTouches =
+        1;
+
+    _panGesture.maximumNumberOfTouches =
+        1;
+
+    _panGesture.cancelsTouchesInView =
+        YES;
+
+    [self addGestureRecognizer:_panGesture];
 
     return self;
+}
+
+- (void)installGesturePriority {
+    /*
+     The slider is a direct child of the CoverSheet root.
+
+     Native lock-screen scroll views are underneath it,
+     so they don't receive touches that start here.
+
+     Gesture recognizers installed on parent/ancestor
+     views can still see the touch. Make those pan
+     recognizers wait for our slider.
+     */
+
+    UIView *ancestor =
+        self.superview;
+
+    while (ancestor) {
+        for (UIGestureRecognizer *recognizer
+             in ancestor.gestureRecognizers) {
+
+            if (recognizer ==
+                    self.panGesture ||
+                ![recognizer
+                    isKindOfClass:
+                        UIPanGestureRecognizer.class]) {
+
+                continue;
+            }
+
+            [recognizer
+                requireGestureRecognizerToFail:
+                    self.panGesture];
+        }
+
+        ancestor =
+            ancestor.superview;
+    }
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
 
     CGFloat width =
-        CGRectGetWidth(
-            self.bounds
-        );
+        CGRectGetWidth(self.bounds);
 
     CGFloat scale =
         UIScreen.mainScreen.scale;
@@ -295,355 +338,539 @@ UILabel *textLabel;
             ),
             70.0
         );
+
+    [self applyProgress];
+}
+
+- (BOOL)gestureRecognizerShouldBegin:
+    (UIGestureRecognizer *)gestureRecognizer {
+
+    if (gestureRecognizer !=
+            self.panGesture ||
+        !N15Enabled ||
+        !N15OnLockScreen ||
+        self.completing) {
+
+        return NO;
+    }
+
+    CGPoint velocity =
+        [self.panGesture
+            velocityInView:self];
+
+    /*
+     Only take a deliberate horizontal swipe
+     towards the right.
+     */
+
+    return
+        velocity.x > 0.0 &&
+        fabs(velocity.x) >
+            fabs(velocity.y) * 1.10;
+}
+
+- (void)handlePan:
+    (UIPanGestureRecognizer *)gesture {
+
+    if (!N15OnLockScreen ||
+        self.completing) {
+
+        return;
+    }
+
+    CGFloat availableDistance =
+        MAX(
+            CGRectGetWidth(self.bounds) -
+                82.0,
+            1.0
+        );
+
+    CGPoint translation =
+        [gesture
+            translationInView:self];
+
+    if (gesture.state ==
+        UIGestureRecognizerStateBegan) {
+
+        self.progress =
+            0.0;
+
+        self.textLabel.alpha =
+            1.0;
+
+        [self applyProgress];
+
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateChanged) {
+
+        self.progress =
+            MIN(
+                MAX(
+                    translation.x /
+                        availableDistance,
+                    0.0
+                ),
+                1.0
+            );
+
+        [self applyProgress];
+
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateEnded) {
+
+        CGFloat velocityX =
+            [gesture
+                velocityInView:self].x;
+
+        /*
+         Normal completion:
+         68% of the available distance.
+
+         A fast deliberate flick is accepted after
+         about one third of the track.
+         */
+
+        BOOL completed =
+            self.progress >= 0.68 ||
+            (
+                self.progress >= 0.32 &&
+                velocityX >= 850.0
+            );
+
+        if (completed) {
+            [self completeSlide];
+        } else {
+            [self resetAnimated:YES];
+        }
+
+        return;
+    }
+
+    if (gesture.state ==
+            UIGestureRecognizerStateCancelled ||
+        gesture.state ==
+            UIGestureRecognizerStateFailed) {
+
+        [self resetAnimated:YES];
+    }
+}
+
+- (void)completeSlide {
+    if (self.completing) {
+        return;
+    }
+
+    self.completing =
+        YES;
+
+    self.progress =
+        1.0;
+
+    [UIView
+        animateWithDuration:0.16
+                      delay:0.0
+                    options:
+            UIViewAnimationOptionCurveEaseOut |
+            UIViewAnimationOptionBeginFromCurrentState
+                 animations:^{
+
+        [self applyProgress];
+
+        self.textLabel.alpha =
+            0.0;
+
+    } completion:^(__unused BOOL finished) {
+
+        /*
+         This is the ONLY unlock-related action.
+
+         It asks SpringBoard to perform its normal
+         unlock flow.
+
+         It does not:
+         - bypass a passcode
+         - disable Touch ID
+         - disable Home
+         - intercept unlockUIFromSource:
+         */
+
+        N15RequestUnlock();
+
+        /*
+         Prepare it again behind any passcode UI.
+
+         If passcode entry appears, that UI was
+         presented afterwards and remains above this
+         slider. If passcode entry is cancelled, the
+         slider is already usable again.
+         */
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                (int64_t)(
+                    0.55 *
+                    NSEC_PER_SEC
+                )
+            ),
+            dispatch_get_main_queue(),
+            ^{
+                if (N15OnLockScreen &&
+                    self.window) {
+
+                    [self
+                        resetAnimated:NO];
+                }
+            }
+        );
+    }];
+}
+
+- (void)resetAnimated:
+    (BOOL)animated {
+
+    self.completing =
+        NO;
+
+    self.progress =
+        0.0;
+
+    void (^changes)(void) =
+        ^{
+            self.chevronLabel.transform =
+                CGAffineTransformIdentity;
+
+            self.textLabel.alpha =
+                1.0;
+        };
+
+    if (!animated) {
+        changes();
+        return;
+    }
+
+    [UIView
+        animateWithDuration:0.22
+                      delay:0.0
+                    options:
+            UIViewAnimationOptionCurveEaseOut |
+            UIViewAnimationOptionBeginFromCurrentState
+                 animations:
+            changes
+                 completion:nil];
+}
+
+- (void)applyProgress {
+    CGFloat availableDistance =
+        MAX(
+            CGRectGetWidth(self.bounds) -
+                82.0,
+            1.0
+        );
+
+    CGFloat translation =
+        availableDistance *
+        self.progress;
+
+    self.chevronLabel.transform =
+        CGAffineTransformMakeTranslation(
+            translation,
+            0.0
+        );
+
+    if (!self.completing) {
+        self.textLabel.alpha =
+            MAX(
+                1.0 -
+                    self.progress * 0.72,
+                0.18
+            );
+    }
 }
 
 @end
 
-#pragma mark - Lock Screen state
+#pragma mark - State update
 
-%hook CSCoverSheetViewController
+static void N15SetOnLockScreen(
+    BOOL onLockScreen
+) {
+    N15OnLockScreen =
+        onLockScreen;
 
-- (void)viewWillAppear:
-    (BOOL)animated {
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^{
+            N15SlideToUnlockView *slideView =
+                N15CurrentSlideView;
 
-    %orig(animated);
+            if (!slideView) {
+                return;
+            }
 
-    /*
-     * This is the same important idea used by
-     * NineLS / NineUnlock:
-     *
-     * decide whether this CoverSheet appearance
-     * is the real Lock Screen when it APPEARS.
-     *
-     * We intentionally do NOT hook
-     * setAuthenticated: because Touch ID can
-     * authenticate while the Lock Screen remains
-     * visually on screen.
-     */
-    N15SetOnLockScreen(
-        !self.authenticated
+            slideView.hidden =
+                !onLockScreen;
+
+            slideView.userInteractionEnabled =
+                onLockScreen;
+
+            if (onLockScreen) {
+                [slideView
+                    resetAnimated:NO];
+            }
+        }
     );
 }
 
-%end
+#pragma mark - CoverSheet
 
-#pragma mark - Slide label
+%hook CSCoverSheetViewController
 
-%hook CSMainPageView
+- (void)viewDidAppear:
+    (BOOL)animated {
 
-- (void)layoutSubviews {
-    %orig;
+    %orig(animated);
 
     if (!N15Enabled) {
         return;
     }
 
-    N15CurrentMainPageView =
-        self;
+    /*
+     Check the UI-lock state only when CoverSheet
+     appears.
 
-    N15SlideVisualView *slideView =
+     Do NOT query this from layoutSubviews. Repeated
+     polling during authentication/transitions was
+     one of the previous bugs.
+     */
+
+    BOOL fallback =
+        !self.authenticated;
+
+    N15SetOnLockScreen(
+        N15SystemUILocked(
+            fallback
+        )
+    );
+
+    N15SlideToUnlockView *slideView =
         objc_getAssociatedObject(
             self,
-            N15SlideVisualKey
+            N15SlideViewKey
         );
 
     if (!slideView) {
         slideView =
-            [[N15SlideVisualView alloc]
-                initWithFrame:
-                    CGRectZero];
-
-        slideView.autoresizingMask =
-            UIViewAutoresizingFlexibleWidth |
-            UIViewAutoresizingFlexibleTopMargin;
+            [[N15SlideToUnlockView alloc]
+                initWithFrame:CGRectZero];
 
         objc_setAssociatedObject(
             self,
-            N15SlideVisualKey,
+            N15SlideViewKey,
             slideView,
             OBJC_ASSOCIATION_RETAIN_NONATOMIC
         );
-
-        [self addSubview:
-            slideView];
     }
+
+    /*
+     Put the slider directly on the CoverSheet root,
+     not inside CSMainPageView / CSScrollView.
+     */
+
+    if (slideView.superview !=
+        self.view) {
+
+        [slideView
+            removeFromSuperview];
+
+        [self.view
+            addSubview:slideView];
+    }
+
+    N15CurrentSlideView =
+        slideView;
 
     CGFloat width =
         CGRectGetWidth(
-            self.bounds
+            self.view.bounds
         );
 
     CGFloat height =
         CGRectGetHeight(
-            self.bounds
+            self.view.bounds
         );
 
     CGFloat safeBottom =
-        self.safeAreaInsets.bottom;
+        self.view.safeAreaInsets.bottom;
 
-    CGFloat slideHeight =
-        76.0 +
+    CGFloat sliderHeight =
+        78.0 +
         safeBottom;
 
     slideView.frame =
         CGRectMake(
             0.0,
             MAX(
-                height - slideHeight,
+                height -
+                    sliderHeight,
                 0.0
             ),
             width,
-            slideHeight
+            sliderHeight
         );
 
-    /*
-     * No isUILocked polling here.
-     * No authentication polling here.
-     *
-     * Therefore layoutSubviews cannot randomly
-     * make the text appear/disappear.
-     */
     slideView.hidden =
         !N15OnLockScreen;
 
+    slideView.userInteractionEnabled =
+        N15OnLockScreen;
+
     if (N15OnLockScreen) {
-        [self
+        /*
+         Put it above the normal Lock Screen once.
+         Do not continuously force it above future
+         passcode UI.
+         */
+
+        [self.view
             bringSubviewToFront:
                 slideView];
+
+        [slideView
+            resetAnimated:NO];
+
+        [slideView
+            installGesturePriority];
     }
+
+    [self.view
+        setNeedsLayout];
 }
 
-%end
-
-#pragma mark - Native SpringBoard scrolling
-
-%hook CSScrollView
-
-- (void)didMoveToWindow {
+- (void)viewDidLayoutSubviews {
     %orig;
-
-    if (!N15Enabled ||
-        !self.window) {
-
-        return;
-    }
-
-    NSNumber *installed =
-        objc_getAssociatedObject(
-            self,
-            N15PanInstalledKey
-        );
-
-    if (installed.boolValue) {
-        return;
-    }
-
-    /*
-     * Crucial difference from the previous builds:
-     *
-     * DO NOT create another gesture recognizer.
-     *
-     * We simply add ourselves as another target of
-     * SpringBoard's existing UIScrollView pan.
-     */
-    UIPanGestureRecognizer *pan =
-        self.panGestureRecognizer;
-
-    if (!pan) {
-        return;
-    }
-
-    [pan
-        addTarget:self
-           action:
-            @selector(
-                n15_handleNativePan:
-            )];
-
-    objc_setAssociatedObject(
-        self,
-        N15PanInstalledKey,
-        @YES,
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    );
-}
-
-%new
-- (void)n15_handleNativePan:
-    (UIPanGestureRecognizer *)gesture {
 
     if (!N15Enabled) {
         return;
     }
 
-    UIGestureRecognizerState state =
-        gesture.state;
-
-    /*
-     * Remember where this specific swipe began.
-     *
-     * Your iOS 15.8.8 runtime shows:
-     *
-     * main page:   contentOffset.x = 0
-     * second page: approximately screen width
-     *
-     * This prevents a swipe returning from the
-     * second page from accidentally unlocking.
-     */
-    if (state ==
-        UIGestureRecognizerStateBegan) {
-
-        objc_setAssociatedObject(
-            self,
-            N15PanStartOffsetKey,
-            @(self.contentOffset.x),
-            OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        );
-
-        objc_setAssociatedObject(
-            self,
-            N15PanRequestSentKey,
-            @NO,
-            OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        );
-
-        return;
-    }
-
-    /*
-     * We only make the decision once Apple's
-     * native pan has actually ended.
-     */
-    if (state !=
-        UIGestureRecognizerStateEnded) {
-
-        return;
-    }
-
-    if (!N15OnLockScreen) {
-        return;
-    }
-
-    NSNumber *requestSent =
+    N15SlideToUnlockView *slideView =
         objc_getAssociatedObject(
             self,
-            N15PanRequestSentKey
+            N15SlideViewKey
         );
 
-    if (requestSent.boolValue) {
+    if (!slideView) {
         return;
     }
-
-    NSNumber *startOffsetNumber =
-        objc_getAssociatedObject(
-            self,
-            N15PanStartOffsetKey
-        );
-
-    CGFloat startOffsetX =
-        startOffsetNumber
-        ? startOffsetNumber.doubleValue
-        : self.contentOffset.x;
 
     CGFloat width =
-        MAX(
-            CGRectGetWidth(
-                self.bounds
+        CGRectGetWidth(
+            self.view.bounds
+        );
+
+    CGFloat height =
+        CGRectGetHeight(
+            self.view.bounds
+        );
+
+    CGFloat safeBottom =
+        self.view.safeAreaInsets.bottom;
+
+    CGFloat sliderHeight =
+        78.0 +
+        safeBottom;
+
+    slideView.frame =
+        CGRectMake(
+            0.0,
+            MAX(
+                height -
+                    sliderHeight,
+                0.0
             ),
-            1.0
+            width,
+            sliderHeight
         );
 
-    /*
-     * We only accept a gesture that STARTED from
-     * the main Lock Screen page.
-     */
-    BOOL startedOnMainPage =
-        fabs(startOffsetX) <=
-        width * 0.20;
+    slideView.hidden =
+        !N15OnLockScreen;
 
-    if (!startedOnMainPage) {
-        return;
-    }
-
-    CGPoint translation =
-        [gesture
-            translationInView:
-                self];
-
-    CGPoint velocity =
-        [gesture
-            velocityInView:
-                self];
+    slideView.userInteractionEnabled =
+        N15OnLockScreen;
 
     /*
-     * Normal slide:
-     * around 28% of the screen width.
-     *
-     * On the 320pt device from your log this is
-     * about 90pt.
+     Deliberately no bringSubviewToFront here.
+
+     If SpringBoard presents a passcode screen after
+     the slide, that UI must remain above the slider.
      */
-    CGFloat distanceThreshold =
-        MAX(
-            width * 0.28,
-            80.0
-        );
-
-    /*
-     * It must be a predominantly horizontal,
-     * rightward swipe.
-     */
-    BOOL horizontalRightSwipe =
-        translation.x > 0.0 &&
-        fabs(translation.x) >
-        fabs(translation.y) *
-        1.20;
-
-    BOOL enoughDistance =
-        translation.x >=
-        distanceThreshold;
-
-    /*
-     * Allow a deliberate fast flick without
-     * requiring the full distance.
-     */
-    BOOL quickFlick =
-        translation.x >=
-        44.0 &&
-        velocity.x >=
-        700.0;
-
-    if (!horizontalRightSwipe ||
-        (!enoughDistance &&
-         !quickFlick)) {
-
-        return;
-    }
-
-    objc_setAssociatedObject(
-        self,
-        N15PanRequestSentKey,
-        @YES,
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    );
-
-    /*
-     * Do not request unlock from inside the
-     * UIScrollView recognizer's own processing.
-     *
-     * Queue it for the next main-loop turn so
-     * SpringBoard finishes handling the swipe first.
-     */
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            N15RequestUnlock();
-        }
-    );
 }
 
 %end
 
-#pragma mark - Hide only Apple's stock CTA text
+#pragma mark - Observe Apple's normal lock/unlock
+
+%hook SBLockScreenManager
+
+- (void)lockUIFromSource:
+    (int)source
+            withOptions:
+    (id)options {
+
+    /*
+     Observe only.
+     Never prevent or replace Apple's lock method.
+     */
+
+    %orig(
+        source,
+        options
+    );
+
+    if (N15Enabled) {
+        N15SetOnLockScreen(
+            YES
+        );
+    }
+}
+
+- (BOOL)_finishUIUnlockFromSource:
+    (int)source
+                      withOptions:
+    (id)options {
+
+    /*
+     Apple performs the real unlock first.
+     We only update our UI state afterwards.
+     */
+
+    BOOL result =
+        %orig(
+            source,
+            options
+        );
+
+    if (N15Enabled &&
+        result) {
+
+        N15SetOnLockScreen(
+            NO
+        );
+    }
+
+    return result;
+}
+
+%end
+
+#pragma mark - Hide stock "Press home to unlock"
 
 %hook SBUICallToActionLabel
 
@@ -651,13 +878,9 @@ UILabel *textLabel;
     (id)text
     forLanguage:
     (id)language
-    animated:
+       animated:
     (BOOL)animated {
 
-    /*
-     * This only removes "Press home to unlock".
-     * It does NOT disable the Home Button.
-     */
     if (N15Enabled &&
         N15OnLockScreen) {
 
@@ -684,7 +907,8 @@ UILabel *textLabel;
 %ctor {
     @autoreleasepool {
         NSString *version =
-            UIDevice.currentDevice.systemVersion;
+            UIDevice.currentDevice
+                .systemVersion;
 
         BOOL isIOS15OrNewer =
             [version
